@@ -151,6 +151,34 @@ reason, so you can always see *why* something was categorized the way it was.
 
 Statuses: `Confirmed`, `Needs Review`, `Rejected`, `Personal`, `Duplicate`.
 
+### Bulk review
+
+Every row in the monthly table has a checkbox, plus a header checkbox that
+selects/deselects all *currently filtered* rows (never the whole year) -
+selection persists as you keep adjusting filters, and clears automatically
+once a bulk action succeeds.
+
+Selecting one or more rows shows a sticky bulk-action toolbar with the
+selected count and the combined total grouped by currency (different
+currencies are never summed together). Available actions: Approve selected,
+Reject selected, Mark as personal, Mark as duplicate, Change category,
+Change month, Clear selection.
+
+Each action opens a confirmation dialog showing the count, grouped totals,
+and a warning if the selection has mixed statuses. Approving, rejecting,
+marking personal, or marking duplicate will skip any row that already has a
+prior manual decision (`Rejected`/`Personal`/`Duplicate`) unless you tick the
+override checkbox shown in that case - the server re-validates this itself
+via `POST /api/expenses/bulk` regardless of what the client sends. The whole
+action runs as one database transaction: either every eligible row updates,
+or none does. The response always reports which rows were skipped and why.
+
+Every status/category/month change - individual or bulk - is recorded in a
+structured `AuditLog` (action type, previous/new values, reason, timestamp,
+and whether it was part of a bulk action) alongside the existing free-text
+`AuditNote` system notes; expand a row to see the merged "Audit history"
+timeline for that expense.
+
 ## Export
 
 - Month CSV: `2026-03-business-expenses.csv`

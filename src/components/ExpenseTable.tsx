@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SerializedExpense } from "@/lib/data";
 import type { ExpenseCategory } from "@/lib/types";
 import { CATEGORY_LABELS, SOURCE_TYPE_LABELS, STATUS_LABELS, formatDate, formatMoney } from "@/lib/format";
+import BulkActionToolbar from "./BulkActionToolbar";
+import AuditHistory from "./AuditHistory";
 
 const CATEGORIES = Object.keys(CATEGORY_LABELS);
 const STATUSES = Object.keys(STATUS_LABELS);
@@ -57,6 +59,7 @@ export default function ExpenseTable({
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const currencies = useMemo(
     () => Array.from(new Set(expenses.map((e) => e.currency))).sort(),
@@ -83,6 +86,49 @@ export default function ExpenseTable({
       return true;
     });
   }, [expenses, filters]);
+
+  const selectedExpenses = useMemo(
+    () => expenses.filter((e) => selectedIds.has(e.id)),
+    [expenses, selectedIds],
+  );
+  const visibleSelectedCount = filtered.filter((e) => selectedIds.has(e.id)).length;
+  const allVisibleSelected = filtered.length > 0 && visibleSelectedCount === filtered.length;
+  const someVisibleSelected = visibleSelectedCount > 0 && !allVisibleSelected;
+  const headerCheckboxRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = someVisibleSelected;
+    }
+  }, [someVisibleSelected]);
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  // Selects/deselects only the currently filtered (visible) rows - never
+  // the full year's expenses - preserving selections outside the current
+  // filter.
+  function toggleSelectAllVisible() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) {
+        filtered.forEach((e) => next.delete(e.id));
+      } else {
+        filtered.forEach((e) => next.add(e.id));
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
 
   async function patchExpense(id: string, data: Record<string, unknown>) {
     const res = await fetch(`/api/expenses/${id}`, {
@@ -189,9 +235,23 @@ export default function ExpenseTable({
         />
       )}
 
+      {selectedExpenses.length > 0 && (
+        <BulkActionToolbar
+          selectedExpenses={selectedExpenses}
+          onClear={clearSelection}
+          onDone={() => {
+            clearSelection();
+            router.refresh();
+          }}
+        />
+      )}
+
       <table>
         <thead>
           <tr>
+            <th>
+              <input ref={headerCheckboxRef} type="checkbox" checked={allVisibleSelected} onChange={toggleSelectAllVisible} />
+            </th>
             <th>Date</th>
             <th>Vendor</th>
             <th>Category</th>
@@ -212,11 +272,13 @@ export default function ExpenseTable({
               onToggle={() => setExpandedId(expandedId === e.id ? null : e.id)}
               onPatch={(data) => patchExpense(e.id, data)}
               allExpenses={expenses}
+              selected={selectedIds.has(e.id)}
+              onToggleSelect={() => toggleSelect(e.id)}
             />
           ))}
           {filtered.length === 0 && (
             <tr>
-              <td colSpan={9} className="muted">
+              <td colSpan={10} className="muted">
                 No expenses match the current filters.
               </td>
             </tr>
@@ -233,12 +295,16 @@ function ExpenseRow({
   onToggle,
   onPatch,
   allExpenses,
+  selected,
+  onToggleSelect,
 }: {
   expense: SerializedExpense;
   expanded: boolean;
   onToggle: () => void;
   onPatch: (data: Record<string, unknown>) => void;
   allExpenses: SerializedExpense[];
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState({
@@ -268,6 +334,9 @@ function ExpenseRow({
   return (
     <>
       <tr style={{ cursor: "pointer" }} onClick={onToggle}>
+        <td onClick={(ev) => ev.stopPropagation()}>
+          <input type="checkbox" checked={selected} onChange={onToggleSelect} />
+        </td>
         <td>{formatDate(e.serviceDate ?? e.invoiceDate ?? e.receivedDate)}</td>
         <td>{e.vendor}</td>
         <td>{CATEGORY_LABELS[e.category] ?? e.category}</td>
@@ -296,7 +365,7 @@ function ExpenseRow({
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={9}>
+          <td colSpan={10}>
             <div className="card" style={{ background: "var(--bg)" }} onClick={(ev) => ev.stopPropagation()}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 12 }}>
                 <Detail label="Description" value={e.description ?? "-"} />
@@ -440,6 +509,11 @@ function ExpenseRow({
                   </button>
                 </div>
               )}
+
+              <div style={{ marginTop: 12 }}>
+                <h4 style={{ margin: "0 0 8px", fontSize: 13, color: "var(--text-dim)" }}>Audit history</h4>
+                <AuditHistory expenseId={e.id} />
+              </div>
             </div>
           </td>
         </tr>

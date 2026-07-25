@@ -109,3 +109,25 @@ export interface TotalableExpense {
   convertedAmount?: number | null;
   currency: string;
 }
+
+export type BulkActionType =
+  | "APPROVE"
+  | "REJECT"
+  | "MARK_PERSONAL"
+  | "MARK_DUPLICATE"
+  | "CHANGE_CATEGORY"
+  | "CHANGE_MONTH";
+
+// Statuses that represent a prior manual decision - overriding them with a
+// bulk status-changing action requires explicit confirmation.
+export const ALREADY_DECIDED_STATUSES: ExpenseStatus[] = ["REJECTED", "PERSONAL", "DUPLICATE"];
+
+export interface BulkEligibilityInput {
+  id: string;
+  status: ExpenseStatus;
+}
+
+export interface BulkSkipped {
+  id: string;
+  reason: string;
+}

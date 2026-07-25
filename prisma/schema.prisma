@@ -77,6 +77,7 @@ model Expense {
   primaryDuplicates   DuplicateLink[] @relation("PrimaryExpense")
   supportingDuplicates DuplicateLink[] @relation("SupportingExpense")
   auditNotes         AuditNote[]
+  auditLogs          AuditLog[]
 
   @@index([year, month])
   @@index([category])
@@ -134,6 +135,28 @@ model AuditNote {
   expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
 
   @@index([expenseId])
+}
+
+// Structured audit trail for reviewable field changes (status, category,
+// month), covering both individual and bulk actions. Complements the
+// free-text AuditNote (system classification notes, merge/dedup notes)
+// rather than replacing it - the audit-history view merges both.
+model AuditLog {
+  id             String   @id @default(cuid())
+  expenseId      String
+  actionType     String // "STATUS_CHANGE" | "CATEGORY_CHANGE" | "MONTH_CHANGE"
+  previousValues String // JSON-serialized snapshot of only the changed fields
+  newValues      String // JSON-serialized snapshot of only the changed fields
+  reason         String?
+  performedBy    String // local-user identifier (this is a single-user personal app)
+  isBulk         Boolean  @default(false)
+  bulkActionId   String? // groups every row touched by one bulk action together
+  createdAt      DateTime @default(now())
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+  @@index([bulkActionId])
 }
 
 model SyncState {
