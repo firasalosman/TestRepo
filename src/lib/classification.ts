@@ -101,14 +101,23 @@ export function classifyEmail(input: EmailInput): ClassificationResult {
   // Only the exact sender below is trusted - content-based "via rail"
   // matching is intentionally not sufficient.
   if (address === VIA_RAIL_SENDER) {
-    const confidence = isFinalDocument ? 0.9 : 0.55;
+    // For VIA Rail specifically, the "Booking confirmation" email is the one
+    // that contains the ticket cost, so it's treated as the authoritative
+    // document here (unlike hotels/car rentals, where a booking confirmation
+    // is preliminary). Generic itinerary/update emails with no cost remain
+    // non-final and go to review.
+    const hasBookingConfirmation = t.includes("booking confirmation");
+    const finalDoc = hasBookingConfirmation || isFinalDocument;
+    const confidence = finalDoc ? 0.9 : 0.55;
     return {
       category: "RAIL_TRANSPORTATION",
       confidenceScore: confidence,
-      reason: isFinalDocument
-        ? `Sender is ${VIA_RAIL_SENDER} with final e-ticket/receipt keywords.`
-        : `Sender is ${VIA_RAIL_SENDER} but message looks like an itinerary/update rather than a final receipt.`,
-      isFinalDocument,
+      reason: hasBookingConfirmation
+        ? `Sender is ${VIA_RAIL_SENDER} with a "Booking confirmation" containing the ticket cost.`
+        : isFinalDocument
+          ? `Sender is ${VIA_RAIL_SENDER} with final e-ticket/receipt keywords.`
+          : `Sender is ${VIA_RAIL_SENDER} but message looks like an itinerary/update rather than a final receipt.`,
+      isFinalDocument: finalDoc,
     };
   }
 
@@ -135,6 +144,10 @@ export function classifyEmail(input: EmailInput): ClassificationResult {
   }
 
   // --- Hotels ---
+  // "Marriott" always counts as a hotel match - whether it appears in the
+  // sender, the email body, or attachment (invoice) text - even if none of
+  // the generic hotel keywords below are present.
+  const isMarriott = domain.includes("marriott") || address.includes("marriott") || t.includes("marriott");
   const hotelKeywords = [
     "hotel",
     "check-in",
@@ -143,13 +156,15 @@ export function classifyEmail(input: EmailInput): ClassificationResult {
     "your stay",
     "reservation is confirmed",
   ];
-  if (hotelKeywords.some((k) => t.includes(k))) {
+  if (isMarriott || hotelKeywords.some((k) => t.includes(k))) {
     return {
       category: "HOTEL",
-      confidenceScore: isFinalDocument ? 0.9 : 0.5,
-      reason: isFinalDocument
-        ? "Final hotel folio/receipt with paid amount."
-        : "Hotel booking confirmation only; prefer the final folio/invoice when it arrives.",
+      confidenceScore: isFinalDocument ? 0.9 : isMarriott ? 0.6 : 0.5,
+      reason: isMarriott
+        ? "Marriott match (sender, body, or attachment text) - always treated as a hotel expense."
+        : isFinalDocument
+          ? "Final hotel folio/receipt with paid amount."
+          : "Hotel booking confirmation only; prefer the final folio/invoice when it arrives.",
       isFinalDocument,
     };
   }

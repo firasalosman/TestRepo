@@ -19,6 +19,14 @@ export const CATEGORY_QUERIES: { category: string; query: string }[] = [
     query: `${DATE_RANGE} ${EXCLUDE_SELF} (receipt OR invoice OR folio OR "booking confirmation" OR "your stay") (hotel OR "check-in" OR "check-out" OR reservation)`,
   },
   {
+    // Marriott always counts as a hotel expense (see classification.ts), so
+    // it gets its own broad query - independent of the generic hotel
+    // keyword query above, which a Marriott email might not otherwise match
+    // (e.g. if its subject/body doesn't say "hotel" or "check-in").
+    category: "HOTEL",
+    query: `${DATE_RANGE} ${EXCLUDE_SELF} (from:marriott.com OR marriott)`,
+  },
+  {
     category: "CAR_RENTAL",
     query: `${DATE_RANGE} ${EXCLUDE_SELF} (rental OR "rental agreement" OR receipt OR invoice) (car OR vehicle) (Hertz OR Avis OR Enterprise OR Budget OR "National Car")`,
   },

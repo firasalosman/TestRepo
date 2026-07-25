@@ -93,6 +93,29 @@ describe("classifyEmail", () => {
     expect(folio.confidenceScore).toBeGreaterThan(confirmation.confidenceScore);
   });
 
+  it("classifies a Marriott sender as a hotel expense even with no generic hotel keywords", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "receipts@marriott.com",
+        subject: "Thank you for your purchase",
+        bodyText: "Total: $200.00",
+      }),
+    );
+    expect(result.category).toBe("HOTEL");
+  });
+
+  it("classifies a Marriott match in the attachment (invoice) text as a hotel expense", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "billing@example.com",
+        subject: "Your receipt",
+        bodyText: "Thanks for your purchase.",
+        attachmentTexts: ["Marriott International Invoice #12345, Amount paid: $300.00"],
+      }),
+    );
+    expect(result.category).toBe("HOTEL");
+  });
+
   it("does not treat a car rental authorization hold as a final expense", () => {
     const result = classifyEmail(
       baseEmail({
@@ -127,6 +150,33 @@ describe("classifyEmail", () => {
       }),
     );
     expect(result.category).not.toBe("RAIL_TRANSPORTATION");
+  });
+
+  it("treats a VIA Rail booking confirmation as the final document containing the ticket cost", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "no-reply@viarail.ca",
+        subject: "Your VIA Rail Booking Confirmation",
+        bodyText: "Booking confirmation for Toronto to Montreal. Fare: $214.75",
+      }),
+    );
+    expect(result.category).toBe("RAIL_TRANSPORTATION");
+    expect(result.isFinalDocument).toBe(true);
+    expect(result.confidenceScore).toBeGreaterThan(0.8);
+    expect(result.reason).toContain("Booking confirmation");
+  });
+
+  it("still flags a plain VIA Rail itinerary update (no booking confirmation) for review", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "no-reply@viarail.ca",
+        subject: "Your VIA Rail itinerary update",
+        bodyText: "Your itinerary for Toronto to Montreal has been updated.",
+      }),
+    );
+    expect(result.category).toBe("RAIL_TRANSPORTATION");
+    expect(result.isFinalDocument).toBe(false);
+    expect(result.confidenceScore).toBeLessThan(0.6);
   });
 
   it("falls back to OTHER_POTENTIAL for unrecognized receipts", () => {

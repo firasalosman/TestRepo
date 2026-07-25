@@ -31,9 +31,11 @@ function parseAmountToken(token: string): number {
 }
 
 export function extractAmount(text: string): { amount: number; currency: string } | undefined {
-  // "Total: CAD $123.45", "Amount paid: $612.40", "Total paid CAD 612.40"
+  // "Total: CAD $123.45", "Amount paid: $612.40", "Total paid CAD 612.40",
+  // "Fare: $168.50", "Ticket price: $214.75" (typical VIA Rail booking
+  // confirmation wording, which is the authoritative cost source for rail).
   const labeled = text.match(
-    /(?:total(?:\s+paid)?|amount\s*(?:paid|due|charged)?|balance\s*due|grand\s*total)\s*:?\s*(CAD|USD|EUR|GBP)?\s*([$€£])?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/i,
+    /(?:total(?:\s+paid)?|amount\s*(?:paid|due|charged)?|balance\s*due|grand\s*total|fare|ticket\s*price|total\s*cost)\s*:?\s*(CAD|USD|EUR|GBP)?\s*([$€£])?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)/i,
   );
   if (labeled) {
     const [, code, symbol, amountStr] = labeled;

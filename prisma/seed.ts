@@ -253,30 +253,52 @@ const other: SeedExpense[] = [
     currency: "CAD",
     invoiceNumber: "VIA-7742199",
     tripRoute: "Toronto -> Ottawa",
-    receiptSource: "ATTACHMENT",
+    receiptSource: "EMAIL_BODY",
     confidenceScore: 0.92,
-    classificationReason: "Final e-ticket receipt with paid amount; matches route pattern.",
+    classificationReason: 'Booking confirmation from no-reply@viarail.ca, which contains the ticket cost.',
     gmailMessageId: "mock-via-may",
     emailSender: "no-reply@viarail.ca",
-    emailSubject: "Your VIA Rail e-ticket receipt",
+    emailSubject: "Your VIA Rail Booking Confirmation",
   },
   {
     month: 9,
     category: "RAIL_TRANSPORTATION",
-    status: "NEEDS_REVIEW",
+    status: "CONFIRMED",
     vendor: "VIA Rail",
     description: "Toronto - Montreal, conference",
+    serviceDate: d(9, 18),
+    invoiceDate: d(9, 18),
+    receivedDate: d(9, 18),
+    amount: 214.75,
+    currency: "CAD",
+    invoiceNumber: "VIA-8810452",
+    tripRoute: "Toronto -> Montreal",
+    receiptSource: "EMAIL_BODY",
+    confidenceScore: 0.9,
+    classificationReason: 'Booking confirmation from no-reply@viarail.ca, which contains the ticket cost.',
+    gmailMessageId: "mock-via-sep-confirmation",
+    emailSender: "no-reply@viarail.ca",
+    emailSubject: "Your VIA Rail Booking Confirmation",
+  },
+  {
+    month: 9,
+    category: "RAIL_TRANSPORTATION",
+    status: "DUPLICATE",
+    vendor: "VIA Rail",
+    description: "Itinerary update for the same Toronto - Montreal trip (no cost shown)",
     serviceDate: d(9, 18),
     receivedDate: d(9, 18),
     amount: 214.75,
     currency: "CAD",
     tripRoute: "Toronto -> Montreal",
     receiptSource: "EMAIL_BODY",
-    confidenceScore: 0.6,
-    classificationReason: "Itinerary email found; final receipt not yet located, flagged for review.",
-    gmailMessageId: "mock-via-sep",
+    confidenceScore: 0.55,
+    classificationReason:
+      "Itinerary update from no-reply@viarail.ca (not a booking confirmation, no ticket cost); superseded by the booking confirmation for the same trip.",
+    gmailMessageId: "mock-via-sep-itinerary",
     emailSender: "no-reply@viarail.ca",
     emailSubject: "Your VIA Rail itinerary update",
+    reviewNote: "Same-day, same-amount VIA Rail email - treated as a duplicate of the booking confirmation.",
   },
 
   // --- Other potential business expense (manual review required) ---
@@ -415,6 +437,17 @@ async function main() {
         primaryExpenseId: created["mock-hotel-fairmont-folio-jan"],
         supportingExpenseId: created["mock-hotel-fairmont-conf-jan"],
         reason: "Same stay (Jan 14-16, Fairmont Royal York); final folio preferred over booking confirmation.",
+      },
+    });
+  }
+
+  // Link the September VIA Rail itinerary update to its booking confirmation.
+  if (created["mock-via-sep-confirmation"] && created["mock-via-sep-itinerary"]) {
+    await prisma.duplicateLink.create({
+      data: {
+        primaryExpenseId: created["mock-via-sep-confirmation"],
+        supportingExpenseId: created["mock-via-sep-itinerary"],
+        reason: "Same day (Sep 18) and same amount ($214.75) from no-reply@viarail.ca; booking confirmation contains the ticket cost.",
       },
     });
   }
