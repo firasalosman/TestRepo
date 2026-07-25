@@ -8,15 +8,19 @@ This is a **personal-use application**. It uses Google OAuth with a
 **read-only** Gmail scope and never sends, deletes, archives, labels, or
 modifies any email.
 
-> **Status:** Phase 2 complete — the full dashboard, monthly detail view,
+> **Status:** Phases 2 and 3 complete. The dashboard, monthly detail view,
 > review workflow, filters, and CSV/ZIP export work end-to-end against
-> realistic **mock data**. Phase 3 (real Gmail OAuth + sync) has not been
-> wired up yet; see "Roadmap" below.
+> realistic **mock data**, and real Google OAuth + Gmail read-only sync is
+> wired up for when you're ready to connect a real inbox (`DATA_MODE=gmail`).
+> Automated duplicate-merging and richer manual-review polish land in
+> Phase 4.
 
 ## Stack
 
 - Next.js 14 (App Router) + React 18 + TypeScript
 - Prisma + SQLite (local file database)
+- Google OAuth (`googleapis`) with the `gmail.readonly` scope only
+- `pdf-parse` / `cheerio` for attachment and HTML body text extraction
 - Vitest for unit tests
 - ESLint (`next/core-web-vitals`)
 
@@ -39,7 +43,7 @@ so mock data is never confused with real Gmail data.
 ## Running tests
 
 ```bash
-npm test          # unit tests for classification, date attribution, dedup, totals
+npm test          # unit tests: classification, date attribution, dedup, totals, field extraction
 npm run lint
 npm run build
 ```
@@ -50,14 +54,20 @@ npm run build
 prisma/schema.prisma        Data model (SQLite, plain-string enums)
 prisma/seed.ts               Mock 2026 expense data generator
 src/lib/classification.ts    Deterministic rule-based email → category classifier
+src/lib/fieldExtraction.ts   Regex-based amount/date/invoice#/card-last4/route extraction
 src/lib/dateAttribution.ts   Service date > invoice date > received date rules
 src/lib/dedup.ts             Duplicate detection (booking confirmation vs final invoice, etc.)
 src/lib/totals.ts            Monthly/yearly total aggregation (confirmed vs potential)
 src/lib/data.ts              Prisma query + serialization helpers
+src/lib/googleAuth.ts        OAuth client, encrypted token storage, refresh handling
+src/lib/gmailClient.ts       Read-only Gmail API wrapper (list/get message, get attachment)
+src/lib/gmailQueries.ts      Per-category Gmail search queries (2026 date range)
+src/lib/emailParsing.ts      Gmail message → subject/sender/body/attachments + PDF/HTML text
+src/lib/sync.ts              Sync orchestrator: search → classify → extract → dedup → persist
 src/app/page.tsx             Dashboard: monthly tiles + yearly summary
 src/app/month/[month]/       Monthly detail view
 src/components/ExpenseTable  Filters, search, review actions, manual add, merge
-src/app/api/                 Expenses CRUD, review actions, CSV/ZIP export, delete-all
+src/app/api/                 Expenses CRUD, review actions, CSV/ZIP export, delete-all, OAuth, sync
 ```
 
 ## Business-expense rules implemented
@@ -69,8 +79,9 @@ src/app/api/                 Expenses CRUD, review actions, CSV/ZIP export, dele
 - **Toronto condo rental** — sender/content matching for Menkes and
   "771 Yonge Street, Toronto"; category `Toronto Condo Rental`.
 - **Uber** — only trips charged to the business card ending **4647** are
-  eligible for `CONFIRMED`; any other card is excluded from business totals.
-  Only the last 4 digits of any card are ever stored.
+  eligible for `CONFIRMED`; any other card is detected from the email
+  body/attachment text and automatically marked `PERSONAL` instead. Only the
+  last 4 digits of any card are ever stored — never the full number.
 - **VIA Rail** — final e-ticket/receipt preferred over itinerary/booking
   updates for the same trip.
 - **Other Potential Business Expense** — catch-all for anything that looks
@@ -83,7 +94,10 @@ email received date (flagged for review in that last case) — see
 
 Duplicate detection matches on invoice/confirmation number, attachment
 filename, thread/subject similarity, and vendor+amount+currency+nearby
-service date — see `src/lib/dedup.ts` and its tests.
+service date — see `src/lib/dedup.ts` and its tests. During a real Gmail
+sync, `src/lib/sync.ts` re-runs this reconciliation over the year's
+expenses after each sync so newly-arrived final invoices get linked to
+(and supersede) earlier confirmations automatically.
 
 Only `CONFIRMED` expenses count toward the main monthly/yearly totals;
 `NEEDS_REVIEW` items appear in a separate "potential" total so nothing is
@@ -110,51 +124,96 @@ Statuses: `Confirmed`, `Needs Review`, `Rejected`, `Personal`, `Duplicate`.
 
 All exports include only `CONFIRMED` expenses.
 
-## Security & privacy
-
-- Gmail scope is (and will only ever be) `gmail.readonly` — the app cannot
-  send, delete, archive, or label email even if instructed to, because the
-  OAuth grant itself doesn't permit it.
-- OAuth tokens are stored encrypted at rest (`OAuthToken` table) and are
-  never logged or sent to the client — see `src/lib/logger.ts`, which only
-  ever logs event names, counts, and IDs, never email content or amounts.
-- Only the last 4 digits of any payment card are stored; full card numbers
-  are never retained.
-- No email content, receipts, or extracted financial data are sent to any
-  third-party service by default. This will only change if you explicitly
-  set `AI_ASSISTED_EXTRACTION_ENABLED=true` and configure a provider in
-  `.env` — off by default.
-- `.env`, the SQLite database file, and any locally cached receipt files are
-  git-ignored (see `.gitignore`).
-- A "Delete all local data" button on the dashboard permanently erases the
-  local database (`/api/privacy/delete-all`).
-- Full privacy notice: `/privacy` in the running app.
-
-See `.env.example` for every configuration variable and what it controls.
-
-## Setting up real Gmail access (Phase 3 — not yet implemented)
-
-This section documents the intended setup once OAuth/Gmail sync is wired up:
+## Connecting real Gmail (Phase 3)
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create a
    project and enable the **Gmail API**.
 2. Under "APIs & Services > OAuth consent screen", configure an **internal**
-   or **testing** app (this is a personal tool, not a public app).
+   or **testing** app (this is a personal tool, not a public app) and add
+   your own Google account as a test user.
 3. Under "Credentials", create an **OAuth 2.0 Client ID** (Web application).
-   Add `http://localhost:3000/api/auth/callback/google` as an authorized
+   Add `http://localhost:3000/api/auth/google/callback` as an authorized
    redirect URI.
 4. Copy the client ID/secret into `.env` as `GOOGLE_CLIENT_ID` /
-   `GOOGLE_CLIENT_SECRET`.
-5. Set `DATA_MODE=gmail` and generate `TOKEN_ENCRYPTION_KEY` /
-   `SESSION_SECRET` as described in `.env.example`.
-6. Request only the `https://www.googleapis.com/auth/gmail.readonly` scope
-   during the consent flow.
+   `GOOGLE_CLIENT_SECRET`, and set `GOOGLE_REDIRECT_URI` to the same
+   callback URL.
+5. Generate `TOKEN_ENCRYPTION_KEY` and `SESSION_SECRET`:
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+   ```
+6. Set `DATA_MODE="gmail"` in `.env` and restart the dev server.
+7. On the dashboard, click **Connect Gmail** — you'll be sent through
+   Google's consent screen requesting only
+   `https://www.googleapis.com/auth/gmail.readonly`. This app has no code
+   path that requests or uses send/modify/delete scopes.
+8. Click **Sync Gmail now** to run a sync. Each sync call processes up to
+   ~40 new messages per category (paginated, incremental — already-processed
+   messages are tracked in the `EmailRecord` table and skipped on the next
+   run) so very large mailboxes are synced over several clicks rather than
+   one long-running request.
+9. Use **Logout / revoke access** to revoke the Google OAuth grant at any
+   time; this does not delete your already-synced local expense data — use
+   **Delete all local data** for that.
 
-## Roadmap (Phases 3–4, not yet built)
+### How sync works
 
-- Google OAuth + Gmail API read-only sync with pagination and incremental
-  processing (`SyncState`, `EmailRecord`).
-- Attachment text extraction (PDF/HTML/plain-text/image).
-- Wiring the classification/dedup libraries (already implemented and unit
-  tested) into a live Gmail sync pipeline.
-- Logout/revoke-access UI.
+`src/lib/sync.ts` runs, per category query in `src/lib/gmailQueries.ts`:
+
+1. List matching message IDs (paginated, 25 at a time).
+2. Skip any message ID already recorded in `EmailRecord` (incremental sync).
+3. Fetch the full message, extract the plain-text/HTML body
+   (`src/lib/emailParsing.ts`) and up to 5 attachments (PDF text via
+   `pdf-parse`, HTML via `cheerio`; images are not OCR'd).
+4. Classify the message deterministically (`src/lib/classification.ts`) and
+   extract amount/dates/invoice number/card-last-4/route
+   (`src/lib/fieldExtraction.ts`).
+5. Attribute the expense to a month/year and a status (`Confirmed` only when
+   confidence is high, the document is a final invoice/receipt, an amount
+   was found, and the date didn't have to fall back to the received date;
+   otherwise `Needs Review`, or `Personal` for off-card Uber trips).
+6. Persist the `Expense`, its `Attachment` metadata, and mark the
+   `EmailRecord` as processed.
+7. After all categories, re-run duplicate reconciliation across the year's
+   expenses and link/status any newly-detected duplicates.
+
+No AI-assisted classification step is implemented or called — see
+`AI_ASSISTED_EXTRACTION_ENABLED` below.
+
+## Security & privacy
+
+- Gmail scope is (and will only ever be) `gmail.readonly` — the app cannot
+  send, delete, archive, or label email even if instructed to, because the
+  OAuth grant itself doesn't permit it, and no API call in `src/lib/gmailClient.ts`
+  targets a mutating Gmail endpoint.
+- OAuth tokens are encrypted at rest with AES-256-GCM (`src/lib/crypto.ts`,
+  `OAuthToken` table) using `TOKEN_ENCRYPTION_KEY`, and are never logged or
+  sent to the client. The app's own session cookie carries no token data —
+  see `src/lib/logger.ts`, which only ever logs event names, counts, and
+  IDs, never email content, amounts, or tokens.
+- Only the last 4 digits of any payment card are stored; full card numbers
+  are never retained (`src/lib/fieldExtraction.ts` only captures the last-4
+  group from the card-last-4 regex).
+- No email content, receipts, or extracted financial data are sent to any
+  third-party service by default. This will only change if you explicitly
+  set `AI_ASSISTED_EXTRACTION_ENABLED=true` and configure a provider in
+  `.env` — off by default, and not called anywhere in this codebase yet.
+- `.env`, the SQLite database file, and any locally cached receipt files are
+  git-ignored (see `.gitignore`).
+- A "Delete all local data" button on the dashboard permanently erases the
+  local database (`/api/privacy/delete-all`), separate from revoking Gmail
+  access.
+- Full privacy notice: `/privacy` in the running app.
+
+See `.env.example` for every configuration variable and what it controls.
+
+## Known limitations / roadmap (Phase 4+)
+
+- Sync is triggered manually ("Sync Gmail now") and bounded per call
+  (~40 messages/category); there's no background scheduler yet.
+- Attachment images are not OCR'd — image-only receipts fall back to the
+  email body and are flagged for review if no amount can be found.
+- Duplicate reconciliation runs automatically after each sync, but you can
+  also merge manually from the monthly detail view.
+- Receipt attachments are not cached to local disk yet, so ZIP export only
+  bundles what's locally cached (currently none from a live sync) plus a
+  placeholder note; the CSV export and "open in Gmail" link always work.

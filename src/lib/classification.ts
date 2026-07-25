@@ -48,7 +48,7 @@ function looksFinal(t: string): boolean {
   return hasFinal;
 }
 
-function extractCardLast4(t: string): string | null {
+export function extractCardLast4(t: string): string | null {
   const match = t.match(/(?:card|visa|mastercard|amex)[^0-9]{0,20}(\d{4})\b/);
   return match ? match[1] : null;
 }

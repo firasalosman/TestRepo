@@ -2,6 +2,8 @@ import Link from "next/link";
 import { getDashboardData } from "@/lib/data";
 import { CATEGORY_LABELS, formatMoney, MONTH_NAMES } from "@/lib/format";
 import DeleteAllDataButton from "@/components/DeleteAllDataButton";
+import GmailControls from "@/components/GmailControls";
+import { isAuthenticated } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +12,7 @@ const YEAR = 2026;
 export default async function DashboardPage() {
   const { monthlyTotals, yearlySummary } = await getDashboardData(YEAR);
   const dataMode = process.env.DATA_MODE ?? "mock";
+  const gmailConnected = dataMode === "gmail" && (await isAuthenticated());
 
   return (
     <div className="container">
@@ -24,12 +27,13 @@ export default async function DashboardPage() {
               MOCK DATA MODE — no Gmail connection
             </span>
           )}
-          <div>
+          <div style={{ marginBottom: 8 }}>
             <Link href="/privacy" className="muted" style={{ fontSize: 13, marginRight: 12 }}>
               Privacy notice
             </Link>
             <DeleteAllDataButton />
           </div>
+          {dataMode === "gmail" && <GmailControls connected={gmailConnected} />}
         </div>
       </header>
 
