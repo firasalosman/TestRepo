@@ -1,0 +1,146 @@
+// Business Expense Tracker - Prisma schema
+// SQLite is used for the local MVP. Swap the datasource for production use.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite has no native enum support in Prisma, so these are plain strings.
+// Valid values are enforced in application code - see src/lib/types.ts:
+//   ExpenseCategory: HOTEL | CAR_RENTAL | TORONTO_CONDO_RENTAL |
+//                    GROUND_TRANSPORTATION_UBER | RAIL_TRANSPORTATION | OTHER_POTENTIAL
+//   ExpenseStatus:   CONFIRMED | NEEDS_REVIEW | REJECTED | PERSONAL | DUPLICATE
+//   ReceiptSource:   ATTACHMENT | EMAIL_BODY | BOTH | NONE
+
+// One processed expense candidate, derived from an email (mock or real).
+model Expense {
+  id        String @id @default(cuid())
+
+  // Attribution
+  month Int // 1-12
+  year  Int // e.g. 2026
+
+  category String
+  status   String @default("NEEDS_REVIEW")
+
+  vendor      String
+  description String?
+
+  serviceDate DateTime? // date the expense/trip/stay actually occurred
+  invoiceDate DateTime? // date on the invoice/receipt
+  receivedDate DateTime // date the email was received (fallback)
+
+  amount         Float
+  taxAmount      Float?
+  currency       String  @default("USD")
+  convertedAmount Float?
+  convertedCurrency String?
+
+  invoiceNumber String?
+  cardLast4     String? // never store more than last 4 digits
+
+  tripRoute       String? // e.g. "Toronto -> Montreal"
+  hotelCheckIn    DateTime?
+  hotelCheckOut   DateTime?
+
+  receiptSource      String @default("NONE")
+  confidenceScore    Float  @default(0) // 0..1
+  classificationReason String?
+
+  // Provenance / dedup
+  gmailMessageId String  @unique
+  gmailThreadId  String?
+  emailSender    String
+  emailSubject   String
+
+  isMock Boolean @default(false) // distinguishes seeded mock data from real Gmail data
+
+  reviewNote String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attachments        Attachment[]
+  primaryDuplicates   DuplicateLink[] @relation("PrimaryExpense")
+  supportingDuplicates DuplicateLink[] @relation("SupportingExpense")
+  auditNotes         AuditNote[]
+
+  @@index([year, month])
+  @@index([category])
+  @@index([status])
+}
+
+// Tracks every Gmail message inspected, so re-sync does not reprocess it.
+model EmailRecord {
+  id             String   @id @default(cuid())
+  gmailMessageId String   @unique
+  gmailThreadId  String?
+  subject        String
+  sender         String
+  receivedDate   DateTime
+  processedAt    DateTime @default(now())
+  contentHash    String? // hash of normalized body, used for dedup/change detection
+  producedExpense Boolean @default(false)
+}
+
+model Attachment {
+  id             String  @id @default(cuid())
+  expenseId      String
+  filename       String
+  mimeType       String
+  gmailAttachmentId String?
+  localPath      String? // optional local cache path, never committed to VCS
+  sizeBytes      Int?
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+}
+
+model DuplicateLink {
+  id                  String @id @default(cuid())
+  primaryExpenseId    String
+  supportingExpenseId String
+  reason              String
+
+  primaryExpense    Expense @relation("PrimaryExpense", fields: [primaryExpenseId], references: [id], onDelete: Cascade)
+  supportingExpense Expense @relation("SupportingExpense", fields: [supportingExpenseId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([primaryExpenseId, supportingExpenseId])
+}
+
+model AuditNote {
+  id        String   @id @default(cuid())
+  expenseId String
+  note      String
+  source    String // "system" | "user"
+  createdAt DateTime @default(now())
+
+  expense Expense @relation(fields: [expenseId], references: [id], onDelete: Cascade)
+
+  @@index([expenseId])
+}
+
+model SyncState {
+  id             String    @id @default("singleton")
+  lastHistoryId  String?
+  lastSyncedAt   DateTime?
+  oldestProcessed DateTime?
+  newestProcessed DateTime?
+}
+
+// OAuth tokens, encrypted at rest at the application layer before storage.
+// Only ever read/written server-side; never sent to the client or logged.
+model OAuthToken {
+  id            String   @id @default("singleton")
+  encryptedBlob String // AES-encrypted JSON containing access/refresh tokens
+  scope         String
+  updatedAt     DateTime @updatedAt
+}
