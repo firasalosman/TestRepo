@@ -7,8 +7,18 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 
-const COOKIE_NAME = "bet_session";
-const MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+export const SESSION_COOKIE_NAME = "bet_session";
+const COOKIE_NAME = SESSION_COOKIE_NAME;
+export const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const MAX_AGE_SECONDS = SESSION_MAX_AGE_SECONDS;
+
+export const SESSION_COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === "production",
+  sameSite: "lax" as const,
+  maxAge: MAX_AGE_SECONDS,
+  path: "/",
+};
 
 function getSecretKey(): Uint8Array {
   const secret = process.env.SESSION_SECRET;
@@ -18,20 +28,21 @@ function getSecretKey(): Uint8Array {
   return new TextEncoder().encode(secret);
 }
 
-export async function createSession(): Promise<void> {
-  const token = await new SignJWT({ authenticated: true })
+// Returns the signed session token. Prefer this + setting the cookie
+// directly on the NextResponse you return (see the OAuth callback route) -
+// that is more reliable than the ambient cookies() jar when the handler
+// redirects, since some runtimes don't reliably merge the two.
+export async function createSessionToken(): Promise<string> {
+  return new SignJWT({ authenticated: true })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
     .setExpirationTime(`${MAX_AGE_SECONDS}s`)
     .sign(getSecretKey());
+}
 
-  cookies().set(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    maxAge: MAX_AGE_SECONDS,
-    path: "/",
-  });
+export async function createSession(): Promise<void> {
+  const token = await createSessionToken();
+  cookies().set(COOKIE_NAME, token, SESSION_COOKIE_OPTIONS);
 }
 
 export async function isAuthenticated(): Promise<boolean> {

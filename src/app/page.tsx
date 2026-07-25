@@ -1,8 +1,10 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import { getDashboardData } from "@/lib/data";
 import { CATEGORY_LABELS, formatMoney, MONTH_NAMES } from "@/lib/format";
 import DeleteAllDataButton from "@/components/DeleteAllDataButton";
 import GmailControls from "@/components/GmailControls";
+import GmailStatusBanner from "@/components/GmailStatusBanner";
 import { isAuthenticated } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +29,19 @@ export default async function DashboardPage() {
               MOCK DATA MODE — no Gmail connection
             </span>
           )}
+          {dataMode === "gmail" && (
+            <span
+              className="badge"
+              style={{
+                background: gmailConnected ? "#123a26" : "#3a2f10",
+                color: gmailConnected ? "var(--good)" : "var(--warn)",
+                marginBottom: 8,
+                display: "inline-block",
+              }}
+            >
+              GMAIL MODE — {gmailConnected ? "connected" : "not connected"}
+            </span>
+          )}
           <div style={{ marginBottom: 8 }}>
             <Link href="/privacy" className="muted" style={{ fontSize: 13, marginRight: 12 }}>
               Privacy notice
@@ -36,6 +51,10 @@ export default async function DashboardPage() {
           {dataMode === "gmail" && <GmailControls connected={gmailConnected} />}
         </div>
       </header>
+
+      <Suspense fallback={null}>
+        <GmailStatusBanner />
+      </Suspense>
 
       <section className="card" style={{ marginBottom: 24 }}>
         <h2 style={{ marginTop: 0 }}>2026 Yearly Summary</h2>
