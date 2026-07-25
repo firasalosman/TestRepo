@@ -9,11 +9,6 @@ import { CATEGORY_LABELS, STATUS_LABELS, formatDate, formatMoney } from "@/lib/f
 const CATEGORIES = Object.keys(CATEGORY_LABELS);
 const STATUSES = Object.keys(STATUS_LABELS);
 
-function gmailUrl(messageId: string): string {
-  // Opens the message directly in the Gmail web UI by message ID.
-  return `https://mail.google.com/mail/u/0/#all/${messageId}`;
-}
-
 interface Filters {
   q: string;
   category: string;
@@ -273,6 +268,14 @@ function ExpenseRow({
                 />
                 <Detail label="Email sender" value={e.emailSender} />
                 <Detail label="Email subject" value={e.emailSubject} />
+                <div>
+                  <div className="muted" style={{ fontSize: 12 }}>Link to Email</div>
+                  <div style={{ fontSize: 14 }}>
+                    <a href={e.emailLink} target="_blank" rel="noreferrer">
+                      Open in Gmail
+                    </a>
+                  </div>
+                </div>
                 <Detail label="Receipt source" value={e.receiptSource} />
                 <Detail label="Confidence score" value={`${Math.round(e.confidenceScore * 100)}%`} />
                 <Detail label="Why classified as business" value={e.classificationReason ?? "-"} />
@@ -281,7 +284,7 @@ function ExpenseRow({
               </div>
 
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
-                <a href={gmailUrl(e.gmailMessageId)} target="_blank" rel="noreferrer">
+                <a href={e.emailLink} target="_blank" rel="noreferrer">
                   <button>Open original email in Gmail</button>
                 </a>
                 {e.attachments.map((a) => (

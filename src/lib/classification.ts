@@ -10,6 +10,16 @@ import type { ClassificationResult, EmailInput } from "./types";
 
 const BUSINESS_CARD_LAST_FOUR = "4647";
 
+// The mailbox owner's own address - any email sent from this address is
+// ignored entirely (never classified, never turned into an expense).
+const IGNORED_SENDER_ADDRESSES = ["firasalosman@gmail.com"];
+
+// Only these exact senders are trusted for their respective categories -
+// per the account owner's instruction, content-based matching (e.g. the
+// word "Menkes" appearing in a forwarded email) is deliberately not enough.
+const CONDO_RENTAL_SENDER = "donotreply@managebuilding.com";
+const VIA_RAIL_SENDER = "no-reply@viarail.ca";
+
 function text(input: EmailInput): string {
   return [input.subject, input.bodyText, ...(input.attachmentTexts ?? [])]
     .join("\n")
@@ -18,6 +28,11 @@ function text(input: EmailInput): string {
 
 function senderDomain(sender: string): string {
   const match = sender.toLowerCase().match(/@([a-z0-9.-]+)/);
+  return match ? match[1] : sender.toLowerCase();
+}
+
+function senderAddress(sender: string): string {
+  const match = sender.toLowerCase().match(/([a-z0-9._%+-]+@[a-z0-9.-]+)/);
   return match ? match[1] : sender.toLowerCase();
 }
 
@@ -56,32 +71,43 @@ export function extractCardLast4(t: string): string | null {
 export function classifyEmail(input: EmailInput): ClassificationResult {
   const t = text(input);
   const domain = senderDomain(input.sender);
+  const address = senderAddress(input.sender);
   const isFinalDocument = looksFinal(t);
 
-  // --- Toronto condo rental (Menkes) ---
-  if (
-    domain.includes("menkes.com") ||
-    t.includes("menkes") ||
-    t.includes("771 yonge")
-  ) {
+  // --- Ignore the mailbox owner's own outgoing/self-addressed email ---
+  if (IGNORED_SENDER_ADDRESSES.includes(address)) {
+    return {
+      category: null,
+      confidenceScore: 0,
+      reason: `Sender ${address} is the mailbox owner's own address; ignored.`,
+      isFinalDocument: false,
+    };
+  }
+
+  // --- Toronto condo rental (Menkes, via ManageBuilding) ---
+  // Only the exact sender below is trusted - content-based matching (e.g.
+  // "Menkes" appearing in a forwarded/unrelated email) is intentionally not
+  // sufficient.
+  if (address === CONDO_RENTAL_SENDER) {
     return {
       category: "TORONTO_CONDO_RENTAL",
       confidenceScore: 0.95,
-      reason:
-        'Sender/content matches Menkes property management and/or address "771 Yonge Street, Toronto".',
+      reason: `Sender is ${CONDO_RENTAL_SENDER}, the trusted Menkes/ManageBuilding invoice sender.`,
       isFinalDocument: true,
     };
   }
 
   // --- VIA Rail ---
-  if (domain.includes("viarail.ca") || t.includes("via rail")) {
+  // Only the exact sender below is trusted - content-based "via rail"
+  // matching is intentionally not sufficient.
+  if (address === VIA_RAIL_SENDER) {
     const confidence = isFinalDocument ? 0.9 : 0.55;
     return {
       category: "RAIL_TRANSPORTATION",
       confidenceScore: confidence,
       reason: isFinalDocument
-        ? "VIA Rail sender with final e-ticket/receipt keywords."
-        : "VIA Rail sender but message looks like an itinerary/update rather than a final receipt.",
+        ? `Sender is ${VIA_RAIL_SENDER} with final e-ticket/receipt keywords.`
+        : `Sender is ${VIA_RAIL_SENDER} but message looks like an itinerary/update rather than a final receipt.`,
       isFinalDocument,
     };
   }

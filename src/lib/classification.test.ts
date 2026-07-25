@@ -14,16 +14,38 @@ function baseEmail(overrides: Partial<EmailInput>): EmailInput {
 }
 
 describe("classifyEmail", () => {
-  it("classifies Menkes condo invoices", () => {
+  it("classifies condo invoices only from the trusted ManageBuilding sender", () => {
     const result = classifyEmail(
       baseEmail({
-        sender: "billing@menkes.com",
+        sender: "donotreply@managebuilding.com",
         subject: "Your March 2026 Rent Invoice - 771 Yonge St",
         bodyText: "Invoice for 771 Yonge Street, Toronto",
       }),
     );
     expect(result.category).toBe("TORONTO_CONDO_RENTAL");
     expect(result.confidenceScore).toBeGreaterThan(0.9);
+  });
+
+  it("does not classify a condo invoice from any other sender, even with matching content", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "billing@menkes.com",
+        subject: "Your March 2026 Rent Invoice - 771 Yonge St",
+        bodyText: "Invoice for 771 Yonge Street, Toronto, from Menkes.",
+      }),
+    );
+    expect(result.category).not.toBe("TORONTO_CONDO_RENTAL");
+  });
+
+  it("ignores any email from the mailbox owner's own address", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "Firas Alosman <firasalosman@gmail.com>",
+        subject: "Invoice #123 - Hotel Receipt",
+        bodyText: "Total paid: $500.00",
+      }),
+    );
+    expect(result.category).toBeNull();
   });
 
   it("classifies Uber trips on the business card as confirmed-eligible", () => {
@@ -84,7 +106,7 @@ describe("classifyEmail", () => {
     expect(result.confidenceScore).toBeLessThan(0.5);
   });
 
-  it("classifies VIA Rail final receipts with high confidence", () => {
+  it("classifies VIA Rail final receipts only from the trusted VIA Rail sender", () => {
     const result = classifyEmail(
       baseEmail({
         sender: "no-reply@viarail.ca",
@@ -94,6 +116,17 @@ describe("classifyEmail", () => {
     );
     expect(result.category).toBe("RAIL_TRANSPORTATION");
     expect(result.confidenceScore).toBeGreaterThan(0.8);
+  });
+
+  it("does not classify a VIA Rail-looking email from any other sender", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "forwarded@example.com",
+        subject: "Fwd: Your VIA Rail e-ticket receipt",
+        bodyText: "Receipt for your trip Toronto to Ottawa. Amount paid: $168.50. Sent via VIA Rail.",
+      }),
+    );
+    expect(result.category).not.toBe("RAIL_TRANSPORTATION");
   });
 
   it("falls back to OTHER_POTENTIAL for unrecognized receipts", () => {

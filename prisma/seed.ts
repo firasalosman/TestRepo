@@ -61,11 +61,10 @@ const menkesRent: SeedExpense[] = Array.from({ length: 12 }, (_, i) => {
     invoiceNumber: `MENKES-2026-${String(month).padStart(2, "0")}`,
     receiptSource: "ATTACHMENT",
     confidenceScore: 0.97,
-    classificationReason:
-      'Sender domain matches menkes.com and invoice references property address "771 Yonge Street, Toronto".',
+    classificationReason: "Sender is donotreply@managebuilding.com, the trusted Menkes/ManageBuilding invoice sender.",
     gmailMessageId: `mock-menkes-2026-${month}`,
     gmailThreadId: `mock-thread-menkes-${month}`,
-    emailSender: "billing@menkes.com",
+    emailSender: "donotreply@managebuilding.com",
     emailSubject: `Your ${new Date(Date.UTC(2026, month - 1)).toLocaleString("en-US", { month: "long" })} 2026 Rent Invoice - 771 Yonge St`,
   };
 });

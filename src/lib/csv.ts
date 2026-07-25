@@ -17,6 +17,7 @@ const HEADERS = [
   "Confidence Score",
   "Email Sender",
   "Email Subject",
+  "Link to Email",
   "Gmail Message ID",
 ];
 
@@ -47,6 +48,7 @@ export function expensesToCsv(expenses: SerializedExpense[]): string {
       e.confidenceScore,
       e.emailSender,
       e.emailSubject,
+      e.emailLink,
       e.gmailMessageId,
     ]
       .map(escapeCsv)

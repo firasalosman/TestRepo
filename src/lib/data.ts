@@ -5,6 +5,7 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { computeMonthlyTotals, computeYearlySummary } from "./totals";
+import { buildGmailLink } from "./gmailLink";
 import type { ExpenseCategory, ExpenseStatus, ReceiptSource, TotalableExpense } from "./types";
 
 export interface SerializedExpense {
@@ -35,6 +36,7 @@ export interface SerializedExpense {
   gmailThreadId: string | null;
   emailSender: string;
   emailSubject: string;
+  emailLink: string; // "Link to Email" - opens the original message in Gmail
   isMock: boolean;
   reviewNote: string | null;
   attachments: { id: string; filename: string; mimeType: string; sizeBytes: number | null }[];
@@ -74,6 +76,7 @@ export function serializeExpense(e: ExpenseWithRelations): SerializedExpense {
     gmailThreadId: e.gmailThreadId,
     emailSender: e.emailSender,
     emailSubject: e.emailSubject,
+    emailLink: buildGmailLink(e.gmailMessageId),
     isMock: e.isMock,
     reviewNote: e.reviewNote,
     attachments: e.attachments.map((a) => ({

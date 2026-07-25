@@ -111,4 +111,32 @@ describe("findDuplicates", () => {
 
     expect(findDuplicates(candidates)).toHaveLength(0);
   });
+
+  it("treats multiple VIA Rail emails on the same day with the same amount as duplicates", () => {
+    const candidates: DedupCandidate[] = [
+      {
+        id: "itinerary",
+        vendor: "VIA Rail",
+        amount: 214.75,
+        currency: "CAD",
+        serviceDate: new Date("2026-09-18T00:00:00Z"),
+        emailSubject: "Your VIA Rail itinerary update",
+        isFinalDocument: false,
+      },
+      {
+        id: "receipt",
+        vendor: "VIA Rail",
+        amount: 214.75,
+        currency: "CAD",
+        serviceDate: new Date("2026-09-18T00:00:00Z"),
+        emailSubject: "Your VIA Rail e-ticket receipt",
+        isFinalDocument: true,
+      },
+    ];
+
+    const groups = findDuplicates(candidates);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].primaryId).toBe("receipt");
+    expect(groups[0].supportingIds).toEqual(["itinerary"]);
+  });
 });
