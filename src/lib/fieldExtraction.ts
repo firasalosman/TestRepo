@@ -15,6 +15,9 @@ export interface ExtractedFields {
   tripRoute?: string;
   hotelCheckIn?: Date;
   hotelCheckOut?: Date;
+  hotelName?: string;
+  hotelCity?: string;
+  guestName?: string;
   serviceDate?: Date;
 }
 
@@ -110,6 +113,25 @@ export function extractRoute(text: string): string | undefined {
   return undefined;
 }
 
+// Captures a hotel brand/property name around the word "Marriott", e.g.
+// "Courtyard by Marriott Toronto Downtown" or "Marriott Downtown Ottawa".
+export function extractHotelName(text: string): string | undefined {
+  const match = text.match(
+    new RegExp(`(${CITY_CHAIN}\\s+)?Marriott(\\s+${CITY_CHAIN})?`, "i"),
+  );
+  return match ? match[0].trim() : undefined;
+}
+
+export function extractHotelCity(text: string): string | undefined {
+  const match = text.match(new RegExp(`(?:city|location)\\s*:?\\s*(${CITY_CHAIN})`, "i"));
+  return match ? match[1].trim() : undefined;
+}
+
+export function extractGuestName(text: string): string | undefined {
+  const match = text.match(new RegExp(`guest(?:\\s*name)?\\s*:?\\s*(${CITY_CHAIN})`, "i"));
+  return match ? match[1].trim() : undefined;
+}
+
 export function extractAllFields(text: string): ExtractedFields {
   const amount = extractAmount(text);
   const hotelDates = extractHotelDates(text);
@@ -122,6 +144,9 @@ export function extractAllFields(text: string): ExtractedFields {
     tripRoute: extractRoute(text),
     hotelCheckIn: hotelDates.checkIn,
     hotelCheckOut: hotelDates.checkOut,
+    hotelName: extractHotelName(text),
+    hotelCity: extractHotelCity(text),
+    guestName: extractGuestName(text),
     serviceDate: extractServiceDate(text),
   };
 }

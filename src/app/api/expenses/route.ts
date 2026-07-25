@@ -13,6 +13,7 @@ export async function GET(req: NextRequest) {
   const vendor = sp.get("vendor");
   const category = sp.get("category");
   const status = sp.get("status");
+  const sourceType = sp.get("sourceType");
   const currency = sp.get("currency");
   const minAmount = sp.get("minAmount");
   const maxAmount = sp.get("maxAmount");
@@ -25,6 +26,7 @@ export async function GET(req: NextRequest) {
   if (vendor) where.vendor = { contains: vendor };
   if (category) where.category = category;
   if (status) where.status = status;
+  if (sourceType) where.sourceType = sourceType;
   if (currency) where.currency = currency;
   if (minConfidence) where.confidenceScore = { gte: Number(minConfidence) };
   if (minAmount || maxAmount) {
@@ -51,6 +53,7 @@ export async function GET(req: NextRequest) {
     include: {
       attachments: true,
       primaryDuplicates: { include: { supportingExpense: true } },
+      supportingDuplicates: { include: { primaryExpense: true } },
     },
     orderBy: [{ month: "asc" }, { serviceDate: "asc" }],
   });
@@ -73,6 +76,7 @@ export async function POST(req: NextRequest) {
     include: {
       attachments: true,
       primaryDuplicates: { include: { supportingExpense: true } },
+      supportingDuplicates: { include: { primaryExpense: true } },
     },
     data: {
       month: Number(body.month),
@@ -87,6 +91,7 @@ export async function POST(req: NextRequest) {
       currency: body.currency,
       receiptSource: "NONE",
       confidenceScore: 1,
+      sourceType: "FINAL_INVOICE",
       classificationReason: "Manually added by user.",
       gmailMessageId: `manual-${randomUUID()}`,
       emailSender: "manual-entry",

@@ -4,6 +4,7 @@ import { serializeExpense } from "@/lib/data";
 import { logger } from "@/lib/logger";
 
 const EDITABLE_FIELDS = ["vendor", "category", "amount", "currency", "month", "year", "description"] as const;
+const BOOLEAN_FIELDS = ["possibleCancellation"] as const;
 const VALID_STATUSES = ["CONFIRMED", "NEEDS_REVIEW", "REJECTED", "PERSONAL", "DUPLICATE"];
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
@@ -20,6 +21,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   for (const field of EDITABLE_FIELDS) {
     if (body[field] !== undefined) {
       data[field] = field === "amount" ? Number(body[field]) : field === "month" || field === "year" ? Number(body[field]) : body[field];
+    }
+  }
+
+  for (const field of BOOLEAN_FIELDS) {
+    if (body[field] !== undefined) {
+      data[field] = Boolean(body[field]);
     }
   }
 
@@ -53,6 +60,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     include: {
       attachments: true,
       primaryDuplicates: { include: { supportingExpense: true } },
+      supportingDuplicates: { include: { primaryExpense: true } },
     },
   });
 

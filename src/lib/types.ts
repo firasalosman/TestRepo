@@ -12,6 +12,18 @@ export type ExpenseCategory =
 
 export type ReceiptSource = "ATTACHMENT" | "EMAIL_BODY" | "BOTH" | "NONE";
 
+// Distinguishes what kind of document an expense was derived from. Hotel
+// reservation confirmations (e.g. Marriott) are captured as potential
+// expenses even when no final invoice/folio is ever found - see
+// classification.ts and sync.ts.
+export type SourceType =
+  | "FINAL_INVOICE"
+  | "PAID_RECEIPT"
+  | "RESERVATION_CONFIRMATION"
+  | "RESERVATION_CONFIRMATION_MISSING_AMOUNT"
+  | "POSSIBLE_CANCELLATION"
+  | "UNKNOWN";
+
 export type ExpenseStatus =
   | "CONFIRMED"
   | "NEEDS_REVIEW"
@@ -35,6 +47,10 @@ export interface ClassificationResult {
   confidenceScore: number; // 0..1
   reason: string;
   isFinalDocument: boolean; // true = invoice/folio/final receipt, false = confirmation/hold
+  // Set explicitly for hotel reservation confirmations/cancellations; other
+  // categories leave this undefined and sync.ts derives a default from
+  // isFinalDocument (FINAL_INVOICE vs UNKNOWN).
+  sourceType?: SourceType;
 }
 
 export interface DateAttributionInput {
@@ -63,11 +79,23 @@ export interface DedupCandidate {
   gmailThreadId?: string | null;
   emailSubject: string;
   isFinalDocument: boolean;
+  // Optional hotel-stay matching keys - used as a fallback when no shared
+  // invoice/confirmation number exists (e.g. matching a Marriott reservation
+  // confirmation to its later final invoice by stay dates/guest instead).
+  hotelCheckIn?: Date | null;
+  hotelCheckOut?: Date | null;
+  guestName?: string | null;
 }
 
 export interface DuplicateGroup {
   primaryId: string;
   supportingIds: string[];
+  reason: string;
+}
+
+export interface CancellationMatch {
+  reservationId: string;
+  cancellationId: string;
   reason: string;
 }
 

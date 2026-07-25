@@ -46,3 +46,12 @@ export const STATUS_LABELS: Record<string, string> = {
   PERSONAL: "Personal",
   DUPLICATE: "Duplicate",
 };
+
+export const SOURCE_TYPE_LABELS: Record<string, string> = {
+  FINAL_INVOICE: "Final Invoice",
+  PAID_RECEIPT: "Paid Receipt",
+  RESERVATION_CONFIRMATION: "Reservation Confirmation",
+  RESERVATION_CONFIRMATION_MISSING_AMOUNT: "Reservation Confirmation – Missing Amount",
+  POSSIBLE_CANCELLATION: "Possible Cancellation",
+  UNKNOWN: "Unknown",
+};

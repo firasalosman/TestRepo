@@ -4,7 +4,7 @@
 // invoice/receipt over a confirmation/hold) is kept as primary; the rest are
 // linked as supporting records.
 
-import type { DedupCandidate, DuplicateGroup } from "./types";
+import type { CancellationMatch, DedupCandidate, DuplicateGroup } from "./types";
 
 function normalizeVendor(vendor: string): string {
   return vendor.trim().toLowerCase().replace(/\s+/g, " ");
@@ -40,6 +40,23 @@ function sameThreadOrSimilarSubject(a: DedupCandidate, b: DedupCandidate): boole
   return overlap >= 0.6;
 }
 
+// Two amounts are "similar" (rather than exactly equal) for hotel-stay
+// matching: a reservation's estimated total rarely matches the final
+// invoice exactly once taxes/fees/incidentals are added, and a missing
+// amount (0) can't be compared numerically at all.
+function amountsSimilar(a: number, b: number): boolean {
+  if (a <= 0 || b <= 0) return true;
+  const diff = Math.abs(a - b);
+  return diff / Math.max(a, b) <= 0.35;
+}
+
+function sameHotelStay(a: DedupCandidate, b: DedupCandidate): boolean {
+  if (!a.hotelCheckIn || !b.hotelCheckIn) return false;
+  if (daysApart(a.hotelCheckIn, b.hotelCheckIn) > 1) return false;
+  if (a.hotelCheckOut && b.hotelCheckOut && daysApart(a.hotelCheckOut, b.hotelCheckOut) > 1) return false;
+  return true;
+}
+
 function isLikelyDuplicate(a: DedupCandidate, b: DedupCandidate): { match: boolean; reason: string } {
   if (normalizeVendor(a.vendor) !== normalizeVendor(b.vendor)) {
     return { match: false, reason: "" };
@@ -69,6 +86,20 @@ function isLikelyDuplicate(a: DedupCandidate, b: DedupCandidate): { match: boole
       match: true,
       reason: "Same vendor, amount, currency, and service date within 3 days.",
     };
+  }
+
+  // Hotel-specific fallback: match a reservation confirmation to its final
+  // invoice/folio by stay dates plus a similar amount or matching guest
+  // name, per the "hotel name, city, check-in/out, guest name, similar
+  // amount" matching rule.
+  if (sameHotelStay(a, b)) {
+    const sameGuest = !!(a.guestName && b.guestName && a.guestName.toLowerCase() === b.guestName.toLowerCase());
+    if (sameGuest || amountsSimilar(a.amount, b.amount)) {
+      return {
+        match: true,
+        reason: "Same hotel stay (matching check-in/check-out dates) with a similar amount or matching guest name.",
+      };
+    }
   }
 
   return { match: false, reason: "" };
@@ -119,4 +150,56 @@ export function findDuplicates(candidates: DedupCandidate[]): DuplicateGroup[] {
   }
 
   return groups;
+}
+
+// Matches "possible cancellation" emails to the hotel reservation
+// confirmation they most likely refer to, using the same confirmation
+// number first / stay-dates+amount fallback matching rule as findDuplicates.
+// Each cancellation matches at most one reservation, and each reservation
+// is matched at most once (first match wins).
+export function findCancellationMatches(
+  cancellations: DedupCandidate[],
+  reservations: DedupCandidate[],
+): CancellationMatch[] {
+  const matches: CancellationMatch[] = [];
+  const usedReservations = new Set<string>();
+
+  for (const cancellation of cancellations) {
+    for (const reservation of reservations) {
+      if (usedReservations.has(reservation.id)) continue;
+      if (normalizeVendor(cancellation.vendor) !== normalizeVendor(reservation.vendor)) continue;
+
+      if (cancellation.invoiceNumber && reservation.invoiceNumber && cancellation.invoiceNumber === reservation.invoiceNumber) {
+        matches.push({
+          reservationId: reservation.id,
+          cancellationId: cancellation.id,
+          reason: `Same confirmation number (${cancellation.invoiceNumber}).`,
+        });
+        usedReservations.add(reservation.id);
+        break;
+      }
+
+      if (sameHotelStay(cancellation, reservation)) {
+        matches.push({
+          reservationId: reservation.id,
+          cancellationId: cancellation.id,
+          reason: "Same hotel stay (matching check-in/check-out dates).",
+        });
+        usedReservations.add(reservation.id);
+        break;
+      }
+
+      if (daysApart(cancellation.serviceDate, reservation.serviceDate) <= 3 && amountsSimilar(cancellation.amount, reservation.amount)) {
+        matches.push({
+          reservationId: reservation.id,
+          cancellationId: cancellation.id,
+          reason: "Same vendor with a nearby service date and similar amount.",
+        });
+        usedReservations.add(reservation.id);
+        break;
+      }
+    }
+  }
+
+  return matches;
 }

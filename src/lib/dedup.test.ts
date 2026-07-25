@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { findDuplicates } from "./dedup";
+import { findCancellationMatches, findDuplicates } from "./dedup";
 import type { DedupCandidate } from "./types";
 
 describe("findDuplicates", () => {
@@ -138,5 +138,169 @@ describe("findDuplicates", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].primaryId).toBe("receipt");
     expect(groups[0].supportingIds).toEqual(["itinerary"]);
+  });
+});
+
+describe("Marriott reservation confirmation matching", () => {
+  it("matches a reservation confirmation to its later final invoice by stay dates, replacing it as authoritative", () => {
+    const candidates: DedupCandidate[] = [
+      {
+        id: "reservation",
+        vendor: "Marriott Downtown Ottawa",
+        amount: 275,
+        currency: "CAD",
+        invoiceNumber: "MARCONF-70033",
+        serviceDate: new Date("2026-08-20T00:00:00Z"),
+        hotelCheckIn: new Date("2026-08-19T00:00:00Z"),
+        hotelCheckOut: new Date("2026-08-20T00:00:00Z"),
+        guestName: "Firas Alosman",
+        emailSubject: "Your Reservation is Confirmed - Marriott Downtown Ottawa",
+        isFinalDocument: false,
+      },
+      {
+        id: "invoice",
+        vendor: "Marriott Downtown Ottawa",
+        amount: 298.6,
+        currency: "CAD",
+        invoiceNumber: "MAR-INV-99120",
+        serviceDate: new Date("2026-08-20T00:00:00Z"),
+        hotelCheckIn: new Date("2026-08-19T00:00:00Z"),
+        hotelCheckOut: new Date("2026-08-20T00:00:00Z"),
+        guestName: "Firas Alosman",
+        emailSubject: "Your Marriott Downtown Ottawa Invoice",
+        isFinalDocument: true,
+      },
+    ];
+
+    const groups = findDuplicates(candidates);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].primaryId).toBe("invoice");
+    expect(groups[0].supportingIds).toEqual(["reservation"]);
+  });
+
+  it("leaves a reservation confirmation with no later invoice as its own standalone record", () => {
+    const candidates: DedupCandidate[] = [
+      {
+        id: "reservation",
+        vendor: "Courtyard by Marriott Toronto Downtown",
+        amount: 342.5,
+        currency: "CAD",
+        invoiceNumber: "MARCONF-70011",
+        serviceDate: new Date("2026-04-22T00:00:00Z"),
+        hotelCheckIn: new Date("2026-04-21T00:00:00Z"),
+        hotelCheckOut: new Date("2026-04-22T00:00:00Z"),
+        guestName: "Firas Alosman",
+        emailSubject: "Your Reservation is Confirmed - Courtyard by Marriott Toronto Downtown",
+        isFinalDocument: false,
+      },
+    ];
+
+    expect(findDuplicates(candidates)).toHaveLength(0);
+  });
+
+  it("matches multiple emails for the same Marriott stay to a single group with the final invoice as primary", () => {
+    const candidates: DedupCandidate[] = [
+      {
+        id: "reservation",
+        vendor: "Marriott Downtown Ottawa",
+        amount: 275,
+        currency: "CAD",
+        serviceDate: new Date("2026-08-20T00:00:00Z"),
+        hotelCheckIn: new Date("2026-08-19T00:00:00Z"),
+        hotelCheckOut: new Date("2026-08-20T00:00:00Z"),
+        emailSubject: "Your Reservation is Confirmed - Marriott Downtown Ottawa",
+        isFinalDocument: false,
+      },
+      {
+        id: "reminder",
+        vendor: "Marriott Downtown Ottawa",
+        amount: 275,
+        currency: "CAD",
+        serviceDate: new Date("2026-08-20T00:00:00Z"),
+        hotelCheckIn: new Date("2026-08-19T00:00:00Z"),
+        hotelCheckOut: new Date("2026-08-20T00:00:00Z"),
+        emailSubject: "Reminder: Your upcoming stay at Marriott Downtown Ottawa",
+        isFinalDocument: false,
+      },
+      {
+        id: "invoice",
+        vendor: "Marriott Downtown Ottawa",
+        amount: 298.6,
+        currency: "CAD",
+        serviceDate: new Date("2026-08-20T00:00:00Z"),
+        hotelCheckIn: new Date("2026-08-19T00:00:00Z"),
+        hotelCheckOut: new Date("2026-08-20T00:00:00Z"),
+        emailSubject: "Your Marriott Downtown Ottawa Invoice",
+        isFinalDocument: true,
+      },
+    ];
+
+    const groups = findDuplicates(candidates);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].primaryId).toBe("invoice");
+    expect(groups[0].supportingIds.sort()).toEqual(["reminder", "reservation"]);
+  });
+});
+
+describe("findCancellationMatches", () => {
+  it("matches a reservation to its cancellation by confirmation number", () => {
+    const reservations: DedupCandidate[] = [
+      {
+        id: "reservation",
+        vendor: "Marriott Downtown Vancouver",
+        amount: 410,
+        currency: "CAD",
+        invoiceNumber: "MARCONF-70044",
+        serviceDate: new Date("2026-10-15T00:00:00Z"),
+        hotelCheckIn: new Date("2026-10-14T00:00:00Z"),
+        hotelCheckOut: new Date("2026-10-15T00:00:00Z"),
+        emailSubject: "Your Reservation is Confirmed - Marriott Downtown Vancouver",
+        isFinalDocument: false,
+      },
+    ];
+    const cancellations: DedupCandidate[] = [
+      {
+        id: "cancellation",
+        vendor: "Marriott Downtown Vancouver",
+        amount: 410,
+        currency: "CAD",
+        invoiceNumber: "MARCONF-70044",
+        serviceDate: new Date("2026-10-02T00:00:00Z"),
+        emailSubject: "Your Reservation Has Been Cancelled - Marriott Downtown Vancouver",
+        isFinalDocument: false,
+      },
+    ];
+
+    const matches = findCancellationMatches(cancellations, reservations);
+    expect(matches).toHaveLength(1);
+    expect(matches[0].reservationId).toBe("reservation");
+    expect(matches[0].cancellationId).toBe("cancellation");
+  });
+
+  it("does not match a cancellation to a reservation for a different vendor", () => {
+    const reservations: DedupCandidate[] = [
+      {
+        id: "reservation",
+        vendor: "Marriott Downtown Vancouver",
+        amount: 410,
+        currency: "CAD",
+        serviceDate: new Date("2026-10-15T00:00:00Z"),
+        emailSubject: "Your Reservation is Confirmed - Marriott Downtown Vancouver",
+        isFinalDocument: false,
+      },
+    ];
+    const cancellations: DedupCandidate[] = [
+      {
+        id: "cancellation",
+        vendor: "Fairmont Royal York",
+        amount: 410,
+        currency: "CAD",
+        serviceDate: new Date("2026-10-02T00:00:00Z"),
+        emailSubject: "Your Reservation Has Been Cancelled",
+        isFinalDocument: false,
+      },
+    ];
+
+    expect(findCancellationMatches(cancellations, reservations)).toHaveLength(0);
   });
 });

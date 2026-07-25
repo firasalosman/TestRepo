@@ -16,6 +16,8 @@ datasource db {
 //                    GROUND_TRANSPORTATION_UBER | RAIL_TRANSPORTATION | OTHER_POTENTIAL
 //   ExpenseStatus:   CONFIRMED | NEEDS_REVIEW | REJECTED | PERSONAL | DUPLICATE
 //   ReceiptSource:   ATTACHMENT | EMAIL_BODY | BOTH | NONE
+//   SourceType:      FINAL_INVOICE | PAID_RECEIPT | RESERVATION_CONFIRMATION |
+//                    RESERVATION_CONFIRMATION_MISSING_AMOUNT | POSSIBLE_CANCELLATION | UNKNOWN
 
 // One processed expense candidate, derived from an email (mock or real).
 model Expense {
@@ -51,6 +53,12 @@ model Expense {
   receiptSource      String @default("NONE")
   confidenceScore    Float  @default(0) // 0..1
   classificationReason String?
+
+  // Hotel reservation-confirmation support (see SourceType above).
+  sourceType           String  @default("UNKNOWN")
+  possibleCancellation Boolean @default(false)
+  guestName            String?
+  hotelCity            String?
 
   // Provenance / dedup
   gmailMessageId String  @unique

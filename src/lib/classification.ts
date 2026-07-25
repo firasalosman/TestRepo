@@ -6,7 +6,7 @@
 // pattern falls through to OTHER_POTENTIAL with a low confidence score and
 // must be manually reviewed before it counts toward confirmed totals.
 
-import type { ClassificationResult, EmailInput } from "./types";
+import type { ClassificationResult, EmailInput, SourceType } from "./types";
 
 const BUSINESS_CARD_LAST_FOUR = "4647";
 
@@ -19,6 +19,11 @@ const IGNORED_SENDER_ADDRESSES = ["firasalosman@gmail.com"];
 // word "Menkes" appearing in a forwarded email) is deliberately not enough.
 const CONDO_RENTAL_SENDER = "donotreply@managebuilding.com";
 const VIA_RAIL_SENDER = "no-reply@viarail.ca";
+const MARRIOTT_RESERVATION_SENDER = "reservations@res-marriott.com";
+
+function looksLikeCancellation(t: string): boolean {
+  return /cancel(?:led|ed|lation)?/.test(t);
+}
 
 function text(input: EmailInput): string {
   return [input.subject, input.bodyText, ...(input.attachmentTexts ?? [])]
@@ -144,6 +149,29 @@ export function classifyEmail(input: EmailInput): ClassificationResult {
   }
 
   // --- Hotels ---
+
+  // Dedicated Marriott reservation-confirmation sender: these must be
+  // captured as potential hotel expenses even when no final invoice/folio
+  // is ever received - see README "Marriott reservation-confirmation rule".
+  if (address === MARRIOTT_RESERVATION_SENDER) {
+    if (looksLikeCancellation(t)) {
+      return {
+        category: "HOTEL",
+        confidenceScore: 0.5,
+        reason: `Cancellation email from ${MARRIOTT_RESERVATION_SENDER} - may relate to a previously captured reservation.`,
+        isFinalDocument: false,
+        sourceType: "POSSIBLE_CANCELLATION",
+      };
+    }
+    return {
+      category: "HOTEL",
+      confidenceScore: 0.6,
+      reason: "Marriott reservation confirmation captured because no final invoice may be available.",
+      isFinalDocument: false,
+      sourceType: "RESERVATION_CONFIRMATION",
+    };
+  }
+
   // "Marriott" always counts as a hotel match - whether it appears in the
   // sender, the email body, or attachment (invoice) text - even if none of
   // the generic hotel keywords below are present.
@@ -157,6 +185,21 @@ export function classifyEmail(input: EmailInput): ClassificationResult {
     "reservation is confirmed",
   ];
   if (isMarriott || hotelKeywords.some((k) => t.includes(k))) {
+    const isCancellation = looksLikeCancellation(t);
+    if (isCancellation) {
+      return {
+        category: "HOTEL",
+        confidenceScore: 0.5,
+        reason: "Hotel cancellation email - may relate to a previously captured reservation.",
+        isFinalDocument: false,
+        sourceType: "POSSIBLE_CANCELLATION",
+      };
+    }
+    const sourceType = isFinalDocument
+      ? t.includes("invoice") || t.includes("folio")
+        ? "FINAL_INVOICE"
+        : "PAID_RECEIPT"
+      : "RESERVATION_CONFIRMATION";
     return {
       category: "HOTEL",
       confidenceScore: isFinalDocument ? 0.9 : isMarriott ? 0.6 : 0.5,
@@ -166,6 +209,7 @@ export function classifyEmail(input: EmailInput): ClassificationResult {
           ? "Final hotel folio/receipt with paid amount."
           : "Hotel booking confirmation only; prefer the final folio/invoice when it arrives.",
       isFinalDocument,
+      sourceType,
     };
   }
 
@@ -213,4 +257,17 @@ export function classifyEmail(input: EmailInput): ClassificationResult {
     reason: "No business-expense indicators found.",
     isFinalDocument: false,
   };
+}
+
+// Derives the final SourceType for an expense once the amount has been
+// extracted: a reservation confirmation with no amount downgrades to the
+// "missing amount" variant. Anything classification.ts didn't set
+// explicitly falls back to FINAL_INVOICE (when it looks like a final
+// document) or UNKNOWN.
+export function resolveSourceType(result: ClassificationResult, hasAmount: boolean): SourceType {
+  const sourceType: SourceType = result.sourceType ?? (result.isFinalDocument ? "FINAL_INVOICE" : "UNKNOWN");
+  if (sourceType === "RESERVATION_CONFIRMATION" && !hasAmount) {
+    return "RESERVATION_CONFIRMATION_MISSING_AMOUNT";
+  }
+  return sourceType;
 }

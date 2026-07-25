@@ -73,7 +73,11 @@ src/app/api/                 Expenses CRUD, review actions, CSV/ZIP export, dele
 ## Business-expense rules implemented
 
 - **Hotels** — prefers the final folio/invoice over a booking confirmation;
-  both are linked via dedup so only one counts.
+  both are linked via dedup so only one counts. **Marriott reservation
+  confirmations** (`reservations@res-marriott.com`) are a special case: they
+  are captured as potential hotel expenses even when no final invoice ever
+  arrives, since a business trip's hotel invoice isn't guaranteed to show up.
+  See "Hotel reservation confirmations" below.
 - **Car rentals** — final rental agreement/closing invoice only; authorization
   holds are flagged `NEEDS_REVIEW`, not counted as final expenses.
 - **Toronto condo rental** — sender/content matching for Menkes and
@@ -98,6 +102,40 @@ service date — see `src/lib/dedup.ts` and its tests. During a real Gmail
 sync, `src/lib/sync.ts` re-runs this reconciliation over the year's
 expenses after each sync so newly-arrived final invoices get linked to
 (and supersede) earlier confirmations automatically.
+
+### Hotel reservation confirmations
+
+Emails from `reservations@res-marriott.com` are captured as potential hotel
+expenses even when no final invoice/folio ever arrives - previously, a
+reservation confirmation with no matching final invoice risked never being
+reviewed at all.
+
+- A `sourceType` field distinguishes `Final Invoice` / `Paid Receipt` /
+  `Reservation Confirmation` / `Reservation Confirmation – Missing Amount` /
+  `Possible Cancellation` for every hotel expense (see
+  `SOURCE_TYPE_LABELS` in `src/lib/format.ts`).
+- A reservation confirmation always starts `Needs Review` and is included in
+  the *potential* monthly/yearly total, never the confirmed one, until a
+  human approves it (or a final invoice supersedes it).
+- Hotel name, city, check-in/check-out dates, confirmation number, and guest
+  name are extracted where present (`src/lib/fieldExtraction.ts`); when no
+  amount can be found, the record is still created with the amount left
+  blank and flagged "Missing Amount" rather than being dropped.
+- When a later final invoice/folio for the same stay is found,
+  `src/lib/dedup.ts` matches it to the reservation by confirmation number
+  first, then by hotel name/check-in/check-out dates + guest name/similar
+  amount as a fallback - the final invoice becomes the authoritative primary
+  record and the reservation is linked as a superseded supporting record
+  (never double-counted).
+- Cancellation emails ("...has been cancelled") are matched to their
+  reservation the same way; a match sets `possibleCancellation: true` on the
+  reservation (visible as a "Possible Cancellation" badge) without
+  auto-rejecting it, since a charge may still have been incurred - the
+  monthly view lets you confirm, reject, edit the amount, or mark it
+  cancelled/personal/duplicate directly.
+- The monthly view has a dedicated "Hotel filter" for reservation
+  confirmations, stays missing a final invoice, and hotel expenses missing
+  an amount.
 
 Only `CONFIRMED` expenses count toward the main monthly/yearly totals;
 `NEEDS_REVIEW` items appear in a separate "potential" total so nothing is

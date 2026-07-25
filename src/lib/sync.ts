@@ -14,11 +14,11 @@ import { prisma } from "./prisma";
 import { requireGmailClient, listMessagePage, getFullMessage, getAttachmentData } from "./gmailClient";
 import { parseMessage, extractAttachmentText } from "./emailParsing";
 import { CATEGORY_QUERIES } from "./gmailQueries";
-import { classifyEmail } from "./classification";
+import { classifyEmail, resolveSourceType } from "./classification";
 import { extractAllFields } from "./fieldExtraction";
-import { attributeExpenseDate } from "./dateAttribution";
-import { findDuplicates } from "./dedup";
-import type { DedupCandidate, EmailInput, ExpenseStatus } from "./types";
+import { attributeExpenseDate, inferHotelServiceDate } from "./dateAttribution";
+import { findDuplicates, findCancellationMatches } from "./dedup";
+import type { DedupCandidate, EmailInput, ExpenseStatus, SourceType } from "./types";
 import { logger } from "./logger";
 
 const BUSINESS_CARD_LAST_FOUR = "4647";
@@ -30,6 +30,7 @@ export interface SyncSummary {
   emailsScanned: number;
   expensesCreated: number;
   duplicatesLinked: number;
+  cancellationsLinked: number;
   errors: number;
 }
 
@@ -97,8 +98,12 @@ async function processMessage(gmail: gmail_v1.Gmail, messageId: string): Promise
   const combinedText = [parsed.subject, parsed.bodyText, ...attachmentTexts].join("\n");
   const fields = extractAllFields(combinedText);
 
+  // Hotels fall back check-out -> check-in -> received date (see
+  // dateAttribution.ts for the final received-date fallback + review flag).
   const inferredServiceDate =
-    fields.serviceDate ?? (classification.category === "HOTEL" ? fields.hotelCheckOut : undefined) ?? null;
+    fields.serviceDate ??
+    (classification.category === "HOTEL" ? inferHotelServiceDate(fields.hotelCheckIn, fields.hotelCheckOut) : null) ??
+    null;
 
   const dateAttribution = attributeExpenseDate({
     category: classification.category,
@@ -107,6 +112,17 @@ async function processMessage(gmail: gmail_v1.Gmail, messageId: string): Promise
     receivedDate,
   });
 
+  const hasAmount = fields.amount !== undefined && fields.amount > 0;
+
+  // Reservation confirmations/cancellations are never final documents, even
+  // when a total/estimated amount is present - the source-type distinction
+  // (not just isFinalDocument) drives whether this can ever be Confirmed.
+  const sourceType: SourceType = resolveSourceType(classification, hasAmount);
+  const isReservationOrCancellation =
+    sourceType === "RESERVATION_CONFIRMATION" ||
+    sourceType === "RESERVATION_CONFIRMATION_MISSING_AMOUNT" ||
+    sourceType === "POSSIBLE_CANCELLATION";
+
   let status: ExpenseStatus = "NEEDS_REVIEW";
   const isUberOffCard =
     classification.category === "GROUND_TRANSPORTATION_UBER" && fields.cardLast4 && fields.cardLast4 !== BUSINESS_CARD_LAST_FOUR;
@@ -114,10 +130,10 @@ async function processMessage(gmail: gmail_v1.Gmail, messageId: string): Promise
   if (isUberOffCard) {
     status = "PERSONAL";
   } else if (
+    !isReservationOrCancellation &&
     classification.confidenceScore >= 0.8 &&
     classification.isFinalDocument &&
-    fields.amount !== undefined &&
-    fields.amount > 0 &&
+    hasAmount &&
     !dateAttribution.needsReview
   ) {
     status = "CONFIRMED";
@@ -126,13 +142,23 @@ async function processMessage(gmail: gmail_v1.Gmail, messageId: string): Promise
   const amount = fields.amount ?? 0;
   const currency = fields.currency ?? "CAD";
 
+  // For a Marriott/hotel reservation, prefer the extracted hotel property
+  // name over the sender's display name as the vendor - the sender is
+  // often just "Marriott Reservations", not the specific property.
+  const senderDisplayName = parsed.sender.replace(/<.*>/, "").trim() || parsed.sender;
+  const vendor = classification.category === "HOTEL" && fields.hotelName ? fields.hotelName : senderDisplayName;
+
+  const reasonParts = [classification.reason];
+  if (dateAttribution.needsReview) reasonParts.push(dateAttribution.reason);
+  if (sourceType === "RESERVATION_CONFIRMATION_MISSING_AMOUNT") reasonParts.push("Flagged as Missing Amount.");
+
   const expense = await prisma.expense.create({
     data: {
       month: dateAttribution.month,
       year: dateAttribution.year,
       category: classification.category,
       status,
-      vendor: parsed.sender.replace(/<.*>/, "").trim() || parsed.sender,
+      vendor,
       description: parsed.subject,
       serviceDate: inferredServiceDate,
       invoiceDate: null,
@@ -145,11 +171,12 @@ async function processMessage(gmail: gmail_v1.Gmail, messageId: string): Promise
       tripRoute: fields.tripRoute ?? null,
       hotelCheckIn: fields.hotelCheckIn ?? null,
       hotelCheckOut: fields.hotelCheckOut ?? null,
+      guestName: fields.guestName ?? null,
+      hotelCity: fields.hotelCity ?? null,
+      sourceType,
       receiptSource: attachmentTexts.length > 0 ? (parsed.bodyText ? "BOTH" : "ATTACHMENT") : parsed.bodyText ? "EMAIL_BODY" : "NONE",
       confidenceScore: classification.confidenceScore,
-      classificationReason: [classification.reason, dateAttribution.needsReview ? dateAttribution.reason : null]
-        .filter(Boolean)
-        .join(" "),
+      classificationReason: reasonParts.filter(Boolean).join(" "),
       gmailMessageId: messageId,
       gmailThreadId: full.threadId,
       emailSender: parsed.sender,
@@ -192,7 +219,10 @@ async function reconcileDuplicates(year: number): Promise<number> {
     attachmentFilename: null,
     gmailThreadId: e.gmailThreadId,
     emailSubject: e.emailSubject,
-    isFinalDocument: e.confidenceScore >= 0.8,
+    isFinalDocument: e.sourceType === "FINAL_INVOICE" || e.sourceType === "PAID_RECEIPT" || e.confidenceScore >= 0.8,
+    hotelCheckIn: e.hotelCheckIn,
+    hotelCheckOut: e.hotelCheckOut,
+    guestName: e.guestName,
   }));
 
   const groups = findDuplicates(candidates);
@@ -221,9 +251,76 @@ async function reconcileDuplicates(year: number): Promise<number> {
   return linked;
 }
 
+// Matches "possible cancellation" hotel emails to the reservation
+// confirmation they most likely refer to. The reservation is flagged
+// (possibleCancellation: true) rather than auto-rejected - per spec, a
+// charge may still have been incurred, so this stays a human decision.
+// The cancellation email itself is marked DUPLICATE (excluded from totals)
+// and linked as a supporting record of the reservation.
+async function reconcileCancellations(year: number): Promise<number> {
+  const expenses = await prisma.expense.findMany({
+    where: { year, category: "HOTEL", status: { in: ["NEEDS_REVIEW", "CONFIRMED"] } },
+  });
+
+  const toCandidate = (e: (typeof expenses)[number]): DedupCandidate => ({
+    id: e.id,
+    vendor: e.vendor,
+    amount: e.amount,
+    currency: e.currency,
+    invoiceNumber: e.invoiceNumber,
+    serviceDate: e.serviceDate,
+    attachmentFilename: null,
+    gmailThreadId: e.gmailThreadId,
+    emailSubject: e.emailSubject,
+    isFinalDocument: e.sourceType === "FINAL_INVOICE" || e.sourceType === "PAID_RECEIPT",
+    hotelCheckIn: e.hotelCheckIn,
+    hotelCheckOut: e.hotelCheckOut,
+    guestName: e.guestName,
+  });
+
+  const cancellations = expenses.filter((e) => e.sourceType === "POSSIBLE_CANCELLATION").map(toCandidate);
+  const reservations = expenses
+    .filter((e) => e.sourceType === "RESERVATION_CONFIRMATION" || e.sourceType === "RESERVATION_CONFIRMATION_MISSING_AMOUNT")
+    .map(toCandidate);
+
+  const matches = findCancellationMatches(cancellations, reservations);
+
+  for (const match of matches) {
+    await prisma.$transaction([
+      prisma.expense.update({
+        where: { id: match.reservationId },
+        data: {
+          possibleCancellation: true,
+          auditNotes: {
+            create: [{ note: `Possible cancellation email matched: ${match.reason}`, source: "system" }],
+          },
+        },
+      }),
+      prisma.expense.update({
+        where: { id: match.cancellationId },
+        data: {
+          status: "DUPLICATE",
+          auditNotes: {
+            create: [{ note: `Linked as a cancellation for reservation ${match.reservationId}: ${match.reason}`, source: "system" }],
+          },
+        },
+      }),
+      prisma.duplicateLink.upsert({
+        where: {
+          primaryExpenseId_supportingExpenseId: { primaryExpenseId: match.reservationId, supportingExpenseId: match.cancellationId },
+        },
+        create: { primaryExpenseId: match.reservationId, supportingExpenseId: match.cancellationId, reason: match.reason },
+        update: { reason: match.reason },
+      }),
+    ]);
+  }
+
+  return matches.length;
+}
+
 export async function runSync(year = 2026): Promise<SyncSummary> {
   const gmail = await requireGmailClient();
-  const summary: SyncSummary = { emailsScanned: 0, expensesCreated: 0, duplicatesLinked: 0, errors: 0 };
+  const summary: SyncSummary = { emailsScanned: 0, expensesCreated: 0, duplicatesLinked: 0, cancellationsLinked: 0, errors: 0 };
 
   for (const { category, query } of CATEGORY_QUERIES) {
     let pageToken: string | undefined;
@@ -258,6 +355,7 @@ export async function runSync(year = 2026): Promise<SyncSummary> {
   }
 
   summary.duplicatesLinked = await reconcileDuplicates(year);
+  summary.cancellationsLinked = await reconcileCancellations(year);
 
   await prisma.syncState.upsert({
     where: { id: "singleton" },

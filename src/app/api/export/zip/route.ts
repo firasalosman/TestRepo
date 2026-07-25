@@ -17,7 +17,11 @@ export async function GET(req: NextRequest) {
 
   const expenses = await prisma.expense.findMany({
     where: { year, status: "CONFIRMED", ...(month ? { month } : {}) },
-    include: { attachments: true, primaryDuplicates: { include: { supportingExpense: true } } },
+    include: {
+      attachments: true,
+      primaryDuplicates: { include: { supportingExpense: true } },
+      supportingDuplicates: { include: { primaryExpense: true } },
+    },
     orderBy: [{ month: "asc" }, { serviceDate: "asc" }],
   });
 

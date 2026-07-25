@@ -6,7 +6,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { computeMonthlyTotals, computeYearlySummary } from "./totals";
 import { buildGmailLink } from "./gmailLink";
-import type { ExpenseCategory, ExpenseStatus, ReceiptSource, TotalableExpense } from "./types";
+import type { ExpenseCategory, ExpenseStatus, ReceiptSource, SourceType, TotalableExpense } from "./types";
 
 export interface SerializedExpense {
   id: string;
@@ -29,6 +29,10 @@ export interface SerializedExpense {
   tripRoute: string | null;
   hotelCheckIn: string | null;
   hotelCheckOut: string | null;
+  guestName: string | null;
+  hotelCity: string | null;
+  sourceType: SourceType;
+  possibleCancellation: boolean;
   receiptSource: ReceiptSource;
   confidenceScore: number;
   classificationReason: string | null;
@@ -41,10 +45,19 @@ export interface SerializedExpense {
   reviewNote: string | null;
   attachments: { id: string; filename: string; mimeType: string; sizeBytes: number | null }[];
   duplicateOf: { id: string; vendor: string; amount: number }[]; // supporting records linked to this one, if this is primary
+  // Set when this expense is itself a supporting record (e.g. a reservation
+  // confirmation later matched to a final invoice, or a cancellation email
+  // matched to a reservation) - lets the UI show "a matching final invoice
+  // was found" for reservation confirmations.
+  supersededBy: { id: string; vendor: string; amount: number; sourceType: SourceType } | null;
 }
 
 type ExpenseWithRelations = Prisma.ExpenseGetPayload<{
-  include: { attachments: true; primaryDuplicates: { include: { supportingExpense: true } } };
+  include: {
+    attachments: true;
+    primaryDuplicates: { include: { supportingExpense: true } };
+    supportingDuplicates: { include: { primaryExpense: true } };
+  };
 }>;
 
 export function serializeExpense(e: ExpenseWithRelations): SerializedExpense {
@@ -69,6 +82,10 @@ export function serializeExpense(e: ExpenseWithRelations): SerializedExpense {
     tripRoute: e.tripRoute,
     hotelCheckIn: e.hotelCheckIn ? e.hotelCheckIn.toISOString() : null,
     hotelCheckOut: e.hotelCheckOut ? e.hotelCheckOut.toISOString() : null,
+    guestName: e.guestName,
+    hotelCity: e.hotelCity,
+    sourceType: e.sourceType as SourceType,
+    possibleCancellation: e.possibleCancellation,
     receiptSource: e.receiptSource as ReceiptSource,
     confidenceScore: e.confidenceScore,
     classificationReason: e.classificationReason,
@@ -90,6 +107,14 @@ export function serializeExpense(e: ExpenseWithRelations): SerializedExpense {
       vendor: l.supportingExpense.vendor,
       amount: l.supportingExpense.amount,
     })),
+    supersededBy: e.supportingDuplicates[0]
+      ? {
+          id: e.supportingDuplicates[0].primaryExpense.id,
+          vendor: e.supportingDuplicates[0].primaryExpense.vendor,
+          amount: e.supportingDuplicates[0].primaryExpense.amount,
+          sourceType: e.supportingDuplicates[0].primaryExpense.sourceType as SourceType,
+        }
+      : null,
   };
 }
 
@@ -99,6 +124,7 @@ export async function getExpensesForYear(year: number): Promise<SerializedExpens
     include: {
       attachments: true,
       primaryDuplicates: { include: { supportingExpense: true } },
+      supportingDuplicates: { include: { primaryExpense: true } },
     },
     orderBy: [{ month: "asc" }, { serviceDate: "asc" }],
   });

@@ -5,7 +5,7 @@
 // without ever connecting to Gmail. All rows are flagged isMock=true.
 
 import { PrismaClient } from "@prisma/client";
-import type { ExpenseCategory, ExpenseStatus, ReceiptSource } from "../src/lib/types";
+import type { ExpenseCategory, ExpenseStatus, ReceiptSource, SourceType } from "../src/lib/types";
 
 const prisma = new PrismaClient();
 
@@ -28,6 +28,10 @@ type SeedExpense = {
   tripRoute?: string;
   hotelCheckIn?: string;
   hotelCheckOut?: string;
+  guestName?: string;
+  hotelCity?: string;
+  sourceType?: SourceType;
+  possibleCancellation?: boolean;
   receiptSource: ReceiptSource;
   confidenceScore: number;
   classificationReason: string;
@@ -132,12 +136,163 @@ const other: SeedExpense[] = [
     invoiceNumber: "MAR-550219",
     hotelCheckIn: d(3, 4),
     hotelCheckOut: d(3, 5),
+    sourceType: "PAID_RECEIPT",
     receiptSource: "ATTACHMENT",
     confidenceScore: 0.91,
     classificationReason: "Post-stay receipt PDF attached with itemized paid amount.",
     gmailMessageId: "mock-hotel-marriott-mar",
     emailSender: "receipts@marriott.com",
     emailSubject: "Thank you for staying with us - Your Receipt",
+  },
+
+  // --- Marriott reservation confirmations (captured even with no final invoice) ---
+  // 1. Clear total, no final invoice ever arrives - stays Needs Review indefinitely.
+  {
+    month: 4,
+    category: "HOTEL",
+    status: "NEEDS_REVIEW",
+    vendor: "Courtyard by Marriott Toronto Downtown",
+    description: "Reservation for client conference - no final invoice received",
+    serviceDate: d(4, 22),
+    receivedDate: d(4, 10),
+    amount: 342.5,
+    currency: "CAD",
+    invoiceNumber: "MARCONF-70011",
+    hotelCheckIn: d(4, 21),
+    hotelCheckOut: d(4, 22),
+    guestName: "Firas Alosman",
+    hotelCity: "Toronto",
+    sourceType: "RESERVATION_CONFIRMATION",
+    receiptSource: "EMAIL_BODY",
+    confidenceScore: 0.6,
+    classificationReason: "Marriott reservation confirmation captured because no final invoice may be available.",
+    gmailMessageId: "mock-marriott-reservation-apr",
+    emailSender: "reservations@res-marriott.com",
+    emailSubject: "Your Reservation is Confirmed - Courtyard by Marriott Toronto Downtown",
+  },
+  // 2. No amount present in the confirmation - Missing Amount variant.
+  {
+    month: 6,
+    category: "HOTEL",
+    status: "NEEDS_REVIEW",
+    vendor: "Marriott Downtown Calgary",
+    description: "Reservation confirmation - total stay amount not shown",
+    serviceDate: d(6, 12),
+    receivedDate: d(6, 1),
+    amount: 0,
+    currency: "CAD",
+    invoiceNumber: "MARCONF-70022",
+    hotelCheckIn: d(6, 11),
+    hotelCheckOut: d(6, 12),
+    guestName: "Firas Alosman",
+    hotelCity: "Calgary",
+    sourceType: "RESERVATION_CONFIRMATION_MISSING_AMOUNT",
+    receiptSource: "EMAIL_BODY",
+    confidenceScore: 0.6,
+    classificationReason:
+      "Marriott reservation confirmation captured because no final invoice may be available. Flagged as Missing Amount.",
+    gmailMessageId: "mock-marriott-reservation-jun",
+    emailSender: "reservations@res-marriott.com",
+    emailSubject: "Your Reservation is Confirmed - Marriott Downtown Calgary",
+    reviewNote: "Amount not shown in reservation confirmation - enter manually or wait for a final invoice.",
+  },
+  // 3a. Reservation confirmation later matched to a final invoice for the same stay (supporting record).
+  {
+    month: 8,
+    category: "HOTEL",
+    status: "DUPLICATE",
+    vendor: "Marriott Downtown Ottawa",
+    description: "Reservation confirmation (superseded by final invoice)",
+    serviceDate: d(8, 20),
+    receivedDate: d(8, 5),
+    amount: 275,
+    currency: "CAD",
+    invoiceNumber: "MARCONF-70033",
+    hotelCheckIn: d(8, 19),
+    hotelCheckOut: d(8, 20),
+    guestName: "Firas Alosman",
+    hotelCity: "Ottawa",
+    sourceType: "RESERVATION_CONFIRMATION",
+    receiptSource: "EMAIL_BODY",
+    confidenceScore: 0.6,
+    classificationReason: "Marriott reservation confirmation captured because no final invoice may be available.",
+    gmailMessageId: "mock-marriott-reservation-aug",
+    emailSender: "reservations@res-marriott.com",
+    emailSubject: "Your Reservation is Confirmed - Marriott Downtown Ottawa",
+    reviewNote: "Superseded by final invoice for the same stay (see linked primary expense).",
+  },
+  // 3b. The final invoice for the same stay - becomes the authoritative primary record.
+  {
+    month: 8,
+    category: "HOTEL",
+    status: "CONFIRMED",
+    vendor: "Marriott Downtown Ottawa",
+    description: "Final invoice for the same stay",
+    serviceDate: d(8, 20),
+    invoiceDate: d(8, 20),
+    receivedDate: d(8, 20),
+    amount: 298.6,
+    taxAmount: 34.6,
+    currency: "CAD",
+    invoiceNumber: "MAR-INV-99120",
+    hotelCheckIn: d(8, 19),
+    hotelCheckOut: d(8, 20),
+    guestName: "Firas Alosman",
+    hotelCity: "Ottawa",
+    sourceType: "FINAL_INVOICE",
+    receiptSource: "ATTACHMENT",
+    confidenceScore: 0.9,
+    classificationReason: "Final hotel invoice with paid amount; matches Marriott reservation for the same stay dates.",
+    gmailMessageId: "mock-marriott-invoice-aug",
+    emailSender: "receipts@marriott.com",
+    emailSubject: "Your Marriott Downtown Ottawa Invoice",
+  },
+  // 4a. Reservation confirmation later matched to a cancellation email - possibleCancellation flag.
+  {
+    month: 10,
+    category: "HOTEL",
+    status: "NEEDS_REVIEW",
+    vendor: "Marriott Downtown Vancouver",
+    description: "Reservation confirmation - later cancelled",
+    serviceDate: d(10, 15),
+    receivedDate: d(10, 1),
+    amount: 410,
+    currency: "CAD",
+    invoiceNumber: "MARCONF-70044",
+    hotelCheckIn: d(10, 14),
+    hotelCheckOut: d(10, 15),
+    guestName: "Firas Alosman",
+    hotelCity: "Vancouver",
+    sourceType: "RESERVATION_CONFIRMATION",
+    possibleCancellation: true,
+    receiptSource: "EMAIL_BODY",
+    confidenceScore: 0.6,
+    classificationReason: "Marriott reservation confirmation captured because no final invoice may be available.",
+    gmailMessageId: "mock-marriott-reservation-oct",
+    emailSender: "reservations@res-marriott.com",
+    emailSubject: "Your Reservation is Confirmed - Marriott Downtown Vancouver",
+    reviewNote: "A cancellation email was matched to this reservation - confirm whether a charge was incurred.",
+  },
+  // 4b. The matching cancellation email - linked as a supporting record, excluded from totals.
+  {
+    month: 10,
+    category: "HOTEL",
+    status: "DUPLICATE",
+    vendor: "Marriott Downtown Vancouver",
+    description: "Cancellation for the Vancouver reservation",
+    serviceDate: d(10, 2),
+    receivedDate: d(10, 2),
+    amount: 410,
+    currency: "CAD",
+    invoiceNumber: "MARCONF-70044",
+    sourceType: "POSSIBLE_CANCELLATION",
+    receiptSource: "EMAIL_BODY",
+    confidenceScore: 0.5,
+    classificationReason: `Cancellation email from reservations@res-marriott.com - may relate to a previously captured reservation.`,
+    gmailMessageId: "mock-marriott-cancellation-oct",
+    emailSender: "reservations@res-marriott.com",
+    emailSubject: "Your Reservation Has Been Cancelled - Marriott Downtown Vancouver",
+    reviewNote: "Matched to reservation MARCONF-70044 by confirmation number.",
   },
 
   // --- Car rentals ---
@@ -396,6 +551,10 @@ async function main() {
         tripRoute: e.tripRoute,
         hotelCheckIn: e.hotelCheckIn ? new Date(e.hotelCheckIn) : undefined,
         hotelCheckOut: e.hotelCheckOut ? new Date(e.hotelCheckOut) : undefined,
+        guestName: e.guestName,
+        hotelCity: e.hotelCity,
+        sourceType: e.sourceType ?? "UNKNOWN",
+        possibleCancellation: e.possibleCancellation ?? false,
         receiptSource: e.receiptSource,
         confidenceScore: e.confidenceScore,
         classificationReason: e.classificationReason,
@@ -448,6 +607,28 @@ async function main() {
         primaryExpenseId: created["mock-via-sep-confirmation"],
         supportingExpenseId: created["mock-via-sep-itinerary"],
         reason: "Same day (Sep 18) and same amount ($214.75) from no-reply@viarail.ca; booking confirmation contains the ticket cost.",
+      },
+    });
+  }
+
+  // Link the August Marriott reservation confirmation to its final invoice.
+  if (created["mock-marriott-invoice-aug"] && created["mock-marriott-reservation-aug"]) {
+    await prisma.duplicateLink.create({
+      data: {
+        primaryExpenseId: created["mock-marriott-invoice-aug"],
+        supportingExpenseId: created["mock-marriott-reservation-aug"],
+        reason: "Same hotel stay (Aug 19-20, Marriott Downtown Ottawa); final invoice replaces the reservation estimate.",
+      },
+    });
+  }
+
+  // Link the October Marriott reservation confirmation to its matching cancellation email.
+  if (created["mock-marriott-reservation-oct"] && created["mock-marriott-cancellation-oct"]) {
+    await prisma.duplicateLink.create({
+      data: {
+        primaryExpenseId: created["mock-marriott-reservation-oct"],
+        supportingExpenseId: created["mock-marriott-cancellation-oct"],
+        reason: "Same confirmation number (MARCONF-70044); cancellation email matched to the reservation.",
       },
     });
   }

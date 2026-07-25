@@ -1,5 +1,5 @@
 import type { SerializedExpense } from "./data";
-import { CATEGORY_LABELS, STATUS_LABELS } from "./format";
+import { CATEGORY_LABELS, SOURCE_TYPE_LABELS, STATUS_LABELS } from "./format";
 
 const HEADERS = [
   "Date",
@@ -14,6 +14,7 @@ const HEADERS = [
   "Invoice Number",
   "Card Last 4",
   "Status",
+  "Source Type",
   "Confidence Score",
   "Email Sender",
   "Email Subject",
@@ -45,6 +46,7 @@ export function expensesToCsv(expenses: SerializedExpense[]): string {
       e.invoiceNumber ?? "",
       e.cardLast4 ?? "",
       STATUS_LABELS[e.status] ?? e.status,
+      SOURCE_TYPE_LABELS[e.sourceType] ?? e.sourceType,
       e.confidenceScore,
       e.emailSender,
       e.emailSubject,

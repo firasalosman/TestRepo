@@ -95,3 +95,45 @@ describe("computeYearlySummary", () => {
     expect(summary.byVendor["Fairmont"]).toBeCloseTo(612.4, 2);
   });
 });
+
+describe("hotel reservation confirmations stay out of confirmed totals until approved", () => {
+  it("counts a Needs Review reservation confirmation toward potential, never confirmed, total", () => {
+    const reservation: TotalableExpense = {
+      id: "res-1",
+      month: 4,
+      category: "HOTEL",
+      vendor: "Courtyard by Marriott Toronto Downtown",
+      status: "NEEDS_REVIEW",
+      amount: 342.5,
+      currency: "CAD",
+    };
+
+    const monthly = computeMonthlyTotals([reservation]);
+    expect(monthly[3].confirmedTotal).toBe(0);
+    expect(monthly[3].potentialTotal).toBeCloseTo(342.5, 2);
+    expect(monthly[3].needsReviewCount).toBe(1);
+
+    const yearly = computeYearlySummary([reservation]);
+    expect(yearly.totalConfirmed).toBe(0);
+    expect(yearly.totalPotential).toBeCloseTo(342.5, 2);
+    expect(yearly.byCategory.HOTEL).toBe(0);
+  });
+
+  it("only counts it toward the confirmed total after the user manually approves it", () => {
+    const approved: TotalableExpense = {
+      id: "res-1",
+      month: 4,
+      category: "HOTEL",
+      vendor: "Courtyard by Marriott Toronto Downtown",
+      status: "CONFIRMED", // user clicked Confirm
+      amount: 342.5,
+      currency: "CAD",
+    };
+
+    const monthly = computeMonthlyTotals([approved]);
+    expect(monthly[3].confirmedTotal).toBeCloseTo(342.5, 2);
+
+    const yearly = computeYearlySummary([approved]);
+    expect(yearly.totalConfirmed).toBeCloseTo(342.5, 2);
+  });
+});

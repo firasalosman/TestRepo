@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { classifyEmail } from "./classification";
+import { classifyEmail, resolveSourceType } from "./classification";
 import type { EmailInput } from "./types";
 
 function baseEmail(overrides: Partial<EmailInput>): EmailInput {
@@ -200,5 +200,66 @@ describe("classifyEmail", () => {
       }),
     );
     expect(result.category).toBeNull();
+  });
+});
+
+describe("Marriott reservation confirmations (reservations@res-marriott.com)", () => {
+  it("captures a reservation confirmation with a clear total as RESERVATION_CONFIRMATION, Needs Review", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "reservations@res-marriott.com",
+        subject: "Your Reservation is Confirmed - Marriott Downtown Ottawa",
+        bodyText: "Check-in: Apr 21, 2026 Check-out: Apr 22, 2026 Total stay estimate: $342.50",
+      }),
+    );
+    expect(result.category).toBe("HOTEL");
+    expect(result.isFinalDocument).toBe(false);
+    expect(result.sourceType).toBe("RESERVATION_CONFIRMATION");
+    expect(result.reason).toBe("Marriott reservation confirmation captured because no final invoice may be available.");
+
+    const sourceType = resolveSourceType(result, true);
+    expect(sourceType).toBe("RESERVATION_CONFIRMATION");
+  });
+
+  it("downgrades to RESERVATION_CONFIRMATION_MISSING_AMOUNT when no amount is present", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "reservations@res-marriott.com",
+        subject: "Your Reservation is Confirmed - Marriott Downtown Calgary",
+        bodyText: "Check-in: Jun 11, 2026 Check-out: Jun 12, 2026",
+      }),
+    );
+    expect(result.category).toBe("HOTEL");
+    expect(result.sourceType).toBe("RESERVATION_CONFIRMATION");
+
+    const sourceType = resolveSourceType(result, false);
+    expect(sourceType).toBe("RESERVATION_CONFIRMATION_MISSING_AMOUNT");
+  });
+
+  it("captures a cancellation email as POSSIBLE_CANCELLATION", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "reservations@res-marriott.com",
+        subject: "Your Reservation Has Been Cancelled - Marriott Downtown Vancouver",
+        bodyText: "Your reservation has been cancelled.",
+      }),
+    );
+    expect(result.category).toBe("HOTEL");
+    expect(result.sourceType).toBe("POSSIBLE_CANCELLATION");
+    expect(result.isFinalDocument).toBe(false);
+  });
+
+  it("never resolves to CONFIRMED-eligible FINAL_INVOICE for a reservation confirmation, even with a high extracted amount", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "reservations@res-marriott.com",
+        subject: "Your Reservation is Confirmed - Marriott Downtown Ottawa",
+        bodyText: "Total stay estimate: $5,000.00",
+      }),
+    );
+    // isFinalDocument stays false regardless of amount - this is what
+    // prevents sync.ts from ever marking a reservation Confirmed.
+    expect(result.isFinalDocument).toBe(false);
+    expect(resolveSourceType(result, true)).not.toBe("FINAL_INVOICE");
   });
 });

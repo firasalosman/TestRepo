@@ -37,3 +37,14 @@ export function attributeExpenseDate(
     reason: "Service and invoice dates unavailable; fell back to email received date. Needs review.",
   };
 }
+
+// Hotels (including reservation confirmations) are assigned to the month of
+// the check-out date; if unavailable, check-in date; otherwise undefined
+// (the caller then falls back further per attributeExpenseDate's own
+// priority - service date -> invoice date -> received date).
+export function inferHotelServiceDate(
+  hotelCheckIn: Date | null | undefined,
+  hotelCheckOut: Date | null | undefined,
+): Date | null {
+  return hotelCheckOut ?? hotelCheckIn ?? null;
+}

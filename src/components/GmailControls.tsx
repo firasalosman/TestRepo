@@ -20,7 +20,7 @@ export default function GmailControls({ connected }: { connected: boolean }) {
         return;
       }
       setMessage(
-        `Scanned ${body.emailsScanned} email(s), created ${body.expensesCreated} expense(s), linked ${body.duplicatesLinked} duplicate(s).`,
+        `Scanned ${body.emailsScanned} email(s), created ${body.expensesCreated} expense(s), linked ${body.duplicatesLinked} duplicate(s), matched ${body.cancellationsLinked} cancellation(s).`,
       );
       router.refresh();
     } catch {

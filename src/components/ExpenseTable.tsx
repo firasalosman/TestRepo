@@ -4,10 +4,21 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { SerializedExpense } from "@/lib/data";
 import type { ExpenseCategory } from "@/lib/types";
-import { CATEGORY_LABELS, STATUS_LABELS, formatDate, formatMoney } from "@/lib/format";
+import { CATEGORY_LABELS, SOURCE_TYPE_LABELS, STATUS_LABELS, formatDate, formatMoney } from "@/lib/format";
 
 const CATEGORIES = Object.keys(CATEGORY_LABELS);
 const STATUSES = Object.keys(STATUS_LABELS);
+
+function isReservationSourceType(sourceType: string): boolean {
+  return sourceType === "RESERVATION_CONFIRMATION" || sourceType === "RESERVATION_CONFIRMATION_MISSING_AMOUNT";
+}
+
+// "No matching final invoice found yet" - only meaningful for a reservation
+// confirmation that hasn't been superseded (linked as DUPLICATE) by a later
+// final invoice/folio.
+function isMissingFinalInvoice(e: SerializedExpense): boolean {
+  return e.category === "HOTEL" && isReservationSourceType(e.sourceType) && e.status !== "DUPLICATE" && !e.supersededBy;
+}
 
 interface Filters {
   q: string;
@@ -18,6 +29,7 @@ interface Filters {
   maxAmount: string;
   minConfidence: string;
   receipt: string;
+  hotelFilter: string;
 }
 
 const EMPTY_FILTERS: Filters = {
@@ -29,6 +41,7 @@ const EMPTY_FILTERS: Filters = {
   maxAmount: "",
   minConfidence: "",
   receipt: "",
+  hotelFilter: "",
 };
 
 export default function ExpenseTable({
@@ -60,6 +73,9 @@ export default function ExpenseTable({
       if (filters.minConfidence && e.confidenceScore < Number(filters.minConfidence)) return false;
       if (filters.receipt === "yes" && !(e.receiptSource === "ATTACHMENT" || e.receiptSource === "BOTH")) return false;
       if (filters.receipt === "no" && (e.receiptSource === "ATTACHMENT" || e.receiptSource === "BOTH")) return false;
+      if (filters.hotelFilter === "reservation" && !(e.category === "HOTEL" && isReservationSourceType(e.sourceType))) return false;
+      if (filters.hotelFilter === "missingInvoice" && !isMissingFinalInvoice(e)) return false;
+      if (filters.hotelFilter === "missingAmount" && !(e.category === "HOTEL" && (e.amount <= 0 || e.sourceType === "RESERVATION_CONFIRMATION_MISSING_AMOUNT"))) return false;
       if (filters.q) {
         const haystack = `${e.vendor} ${e.invoiceNumber ?? ""} ${e.tripRoute ?? ""} ${e.description ?? ""} ${e.emailSubject}`.toLowerCase();
         if (!haystack.includes(filters.q.toLowerCase())) return false;
@@ -139,6 +155,12 @@ export default function ExpenseTable({
           <option value="yes">Has attachment</option>
           <option value="no">No attachment</option>
         </select>
+        <select value={filters.hotelFilter} onChange={(e) => setFilters((f) => ({ ...f, hotelFilter: e.target.value }))}>
+          <option value="">Hotel filter: any</option>
+          <option value="reservation">Hotel reservation confirmations</option>
+          <option value="missingInvoice">Hotel stays missing final invoice</option>
+          <option value="missingAmount">Hotel expenses missing amount</option>
+        </select>
         <button onClick={() => setFilters(EMPTY_FILTERS)}>Clear</button>
       </div>
 
@@ -175,6 +197,7 @@ export default function ExpenseTable({
             <th>Category</th>
             <th>Amount</th>
             <th>Status</th>
+            <th>Source</th>
             <th>Confidence</th>
             <th>Receipt</th>
             <th></th>
@@ -193,7 +216,7 @@ export default function ExpenseTable({
           ))}
           {filtered.length === 0 && (
             <tr>
-              <td colSpan={8} className="muted">
+              <td colSpan={9} className="muted">
                 No expenses match the current filters.
               </td>
             </tr>
@@ -232,17 +255,40 @@ function ExpenseRow({
 
   const mergeCandidates = allExpenses.filter((o) => o.id !== e.id && o.vendor === e.vendor);
 
+  const isReservation = isReservationSourceType(e.sourceType);
+  const sourceColor =
+    e.sourceType === "FINAL_INVOICE" || e.sourceType === "PAID_RECEIPT"
+      ? "var(--good)"
+      : e.sourceType === "POSSIBLE_CANCELLATION"
+        ? "var(--bad)"
+        : isReservation
+          ? "var(--warn)"
+          : "var(--text-dim)";
+
   return (
     <>
       <tr style={{ cursor: "pointer" }} onClick={onToggle}>
         <td>{formatDate(e.serviceDate ?? e.invoiceDate ?? e.receivedDate)}</td>
         <td>{e.vendor}</td>
         <td>{CATEGORY_LABELS[e.category] ?? e.category}</td>
-        <td>{formatMoney(e.amount, e.currency)}</td>
+        <td>
+          {formatMoney(e.amount, e.currency)}
+          {isReservation && <div className="muted" style={{ fontSize: 11 }}>Estimated — final invoice not found</div>}
+        </td>
         <td>
           <span className="badge" style={{ color: statusColor, background: "transparent", border: `1px solid ${statusColor}` }}>
             {STATUS_LABELS[e.status]}
           </span>
+        </td>
+        <td>
+          <span className="badge" style={{ color: sourceColor, background: "transparent", border: `1px solid ${sourceColor}` }}>
+            {SOURCE_TYPE_LABELS[e.sourceType] ?? e.sourceType}
+          </span>
+          {e.possibleCancellation && (
+            <div className="badge" style={{ color: "var(--bad)", background: "transparent", marginTop: 4 }}>
+              Possible Cancellation
+            </div>
+          )}
         </td>
         <td>{Math.round(e.confidenceScore * 100)}%</td>
         <td>{e.receiptSource === "ATTACHMENT" || e.receiptSource === "BOTH" ? "Attached" : e.receiptSource === "EMAIL_BODY" ? "Email body" : "None"}</td>
@@ -250,7 +296,7 @@ function ExpenseRow({
       </tr>
       {expanded && (
         <tr>
-          <td colSpan={8}>
+          <td colSpan={9}>
             <div className="card" style={{ background: "var(--bg)" }} onClick={(ev) => ev.stopPropagation()}>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 12 }}>
                 <Detail label="Description" value={e.description ?? "-"} />
@@ -263,9 +309,23 @@ function ExpenseRow({
                 <Detail label="Card last 4" value={e.cardLast4 ?? "-"} />
                 <Detail label="Trip route" value={e.tripRoute ?? "-"} />
                 <Detail
-                  label="Hotel stay"
+                  label="Check-in / Check-out"
                   value={e.hotelCheckIn ? `${formatDate(e.hotelCheckIn)} → ${formatDate(e.hotelCheckOut)}` : "-"}
                 />
+                {e.category === "HOTEL" && <Detail label="Hotel city" value={e.hotelCity ?? "-"} />}
+                {e.category === "HOTEL" && <Detail label="Guest name" value={e.guestName ?? "-"} />}
+                {isReservation && (
+                  <Detail
+                    label="Estimated amount"
+                    value={e.amount > 0 ? `${formatMoney(e.amount, e.currency)} — Estimated, final invoice not found` : "Missing Amount"}
+                  />
+                )}
+                {e.category === "HOTEL" && (
+                  <Detail
+                    label="Matching final invoice found?"
+                    value={e.supersededBy ? `Yes — ${SOURCE_TYPE_LABELS[e.supersededBy.sourceType] ?? e.supersededBy.sourceType}` : "No"}
+                  />
+                )}
                 <Detail label="Email sender" value={e.emailSender} />
                 <Detail label="Email subject" value={e.emailSubject} />
                 <div>
@@ -298,6 +358,11 @@ function ExpenseRow({
                 <button onClick={() => onPatch({ status: "CONFIRMED" })}>Confirm</button>
                 <button onClick={() => onPatch({ status: "REJECTED" })}>Reject</button>
                 <button onClick={() => onPatch({ status: "PERSONAL" })}>Mark personal</button>
+                {e.category === "HOTEL" && isReservation && !e.possibleCancellation && (
+                  <button onClick={() => onPatch({ possibleCancellation: true, reviewNote: "Marked as cancelled by user." })}>
+                    Mark as cancelled
+                  </button>
+                )}
                 <button onClick={() => setEditing((v) => !v)}>{editing ? "Cancel edit" : "Edit"}</button>
               </div>
 
