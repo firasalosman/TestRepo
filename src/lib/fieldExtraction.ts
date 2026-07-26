@@ -33,6 +33,33 @@ function parseAmountToken(token: string): number {
   return Number(token.replace(/,/g, ""));
 }
 
+// Case-insensitive-safe label matcher: expands a literal word into a
+// character-class-per-letter pattern (e.g. "guest" -> "[Gg][Uu][Ee][Ss][Tt]")
+// so the label can match either case WITHOUT compiling the whole regex with
+// the `i` flag. That distinction matters here: several patterns below use
+// `[A-Z]` elsewhere in the same regex specifically to mean "looks like a
+// capitalized proper noun / uppercase code" - compiling with `i` would make
+// `[A-Z]` match lowercase too and defeat that heuristic entirely, which is
+// exactly what let real (non-mock) email text produce garbage extractions
+// like guestName "s per room" or hotelCity "We".
+function ci(word: string): string {
+  return word
+    .split("")
+    .map((c) => (/[a-zA-Z]/.test(c) ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c))
+    .join("");
+}
+
+// Trims, collapses whitespace, and rejects implausible extracted values
+// (too short, too long, or spanning multiple lines) rather than storing
+// them - used for hotel name/city/guest name/invoice number extraction.
+function sanitize(value: string | undefined, maxLength = 80): string | undefined {
+  if (!value) return undefined;
+  if (/[\r\n]/.test(value)) return undefined;
+  const cleaned = value.replace(/\s+/g, " ").trim();
+  if (cleaned.length < 2 || cleaned.length > maxLength) return undefined;
+  return cleaned;
+}
+
 export function extractAmount(text: string): { amount: number; currency: string } | undefined {
   // "Total: CAD $123.45", "Amount paid: $612.40", "Total paid CAD 612.40",
   // "Fare: $168.50", "Ticket price: $214.75" (typical VIA Rail booking
@@ -67,11 +94,16 @@ export function extractTaxAmount(text: string): number | undefined {
   return match ? parseAmountToken(match[1]) : undefined;
 }
 
+const INVOICE_LABEL = `(?:${ci("invoice")}|${ci("confirmation")}|${ci("booking")}|${ci("reservation")}|${ci("folio")}|${ci("agreement")}|${ci("order")})`;
+const INVOICE_SUFFIX = `(?:#|${ci("number")}|${ci("no")}\\.?|${ci("ref")}(?:${ci("erence")})?)?`;
+
 export function extractInvoiceNumber(text: string): string | undefined {
-  const match = text.match(
-    /(?:invoice|confirmation|booking|reservation|folio|agreement|order)\s*(?:#|number|no\.?|ref(?:erence)?)?\s*:?\s*#?\s*([A-Z0-9][A-Z0-9-]{3,20})/i,
-  );
-  return match ? match[1].toUpperCase() : undefined;
+  // The code capture is intentionally case-sensitive (uppercase letters or
+  // digits only) - real invoice/confirmation codes are conventionally
+  // uppercase, and this is what excludes ordinary lowercase prose
+  // (e.g. the label word itself, or unrelated sentence text) from matching.
+  const match = text.match(new RegExp(`${INVOICE_LABEL}\\s*${INVOICE_SUFFIX}\\s*:?\\s*#?\\s*([A-Z0-9][A-Z0-9-]{3,20})`));
+  return match ? sanitize(match[1], 24) : undefined;
 }
 
 export { extractCardLast4 };
@@ -103,10 +135,15 @@ export function extractServiceDate(text: string): Date | undefined {
   );
 }
 
-const CITY_CHAIN = "[A-Z][a-zA-Z]*(?:\\s+[A-Z][a-zA-Z]*)*";
+// A run of 1-5 capitalized words on the same line (no crossing newlines,
+// bounded length) - intentionally case-sensitive: this is what
+// distinguishes a proper noun (hotel/city/guest name) from ordinary prose.
+// Must NOT be used inside a regex compiled with the `i` flag - see the `ci`
+// helper above for how labels stay case-insensitive without that trap.
+const CITY_CHAIN = "[A-Z][a-zA-Z]*(?:[ \\t]+[A-Z][a-zA-Z]*){0,4}";
 
 export function extractRoute(text: string): string | undefined {
-  const match = text.match(new RegExp(`(${CITY_CHAIN})\\s*(?:->|→|\\bto\\b)\\s*(${CITY_CHAIN})`));
+  const match = text.match(new RegExp(`(${CITY_CHAIN})[ \\t]*(?:->|→|\\bto\\b)[ \\t]*(${CITY_CHAIN})`));
   if (match) {
     return `${match[1].trim()} -> ${match[2].trim()}`;
   }
@@ -116,20 +153,18 @@ export function extractRoute(text: string): string | undefined {
 // Captures a hotel brand/property name around the word "Marriott", e.g.
 // "Courtyard by Marriott Toronto Downtown" or "Marriott Downtown Ottawa".
 export function extractHotelName(text: string): string | undefined {
-  const match = text.match(
-    new RegExp(`(${CITY_CHAIN}\\s+)?Marriott(\\s+${CITY_CHAIN})?`, "i"),
-  );
-  return match ? match[0].trim() : undefined;
+  const match = text.match(new RegExp(`(?:${CITY_CHAIN}[ \\t]+)?${ci("marriott")}(?:[ \\t]+${CITY_CHAIN})?`));
+  return match ? sanitize(match[0]) : undefined;
 }
 
 export function extractHotelCity(text: string): string | undefined {
-  const match = text.match(new RegExp(`(?:city|location)\\s*:?\\s*(${CITY_CHAIN})`, "i"));
-  return match ? match[1].trim() : undefined;
+  const match = text.match(new RegExp(`(?:${ci("city")}|${ci("location")})[ \\t]*:?[ \\t]*(${CITY_CHAIN})`));
+  return match ? sanitize(match[1], 40) : undefined;
 }
 
 export function extractGuestName(text: string): string | undefined {
-  const match = text.match(new RegExp(`guest(?:\\s*name)?\\s*:?\\s*(${CITY_CHAIN})`, "i"));
-  return match ? match[1].trim() : undefined;
+  const match = text.match(new RegExp(`${ci("guest")}(?:[ \\t]*${ci("name")})?[ \\t]*:?[ \\t]*(${CITY_CHAIN})`));
+  return match ? sanitize(match[1], 60) : undefined;
 }
 
 export function extractAllFields(text: string): ExtractedFields {

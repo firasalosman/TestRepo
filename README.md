@@ -221,6 +221,23 @@ All exports include only `CONFIRMED` expenses.
    time; this does not delete your already-synced local expense data — use
    **Delete all local data** for that.
 
+### Troubleshooting: "Unknown argument `guestName`" (or any other field) during sync
+
+This means your running server's generated Prisma Client is out of date with
+`prisma/schema.prisma` — usually after pulling new code that added a schema
+field without re-running the Prisma setup steps locally. Fix:
+
+```bash
+git pull
+npm install
+npx prisma generate
+npx prisma db push
+```
+
+Then restart the dev server (`npm run dev`). This regenerates the Prisma
+Client from the current schema and applies any new columns to your local
+SQLite database; it does not delete existing data.
+
 ### How sync works
 
 `src/lib/sync.ts` runs, per category query in `src/lib/gmailQueries.ts`:
