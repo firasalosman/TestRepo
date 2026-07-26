@@ -1,0 +1,71 @@
+import type { SerializedExpense } from "./data";
+import { CATEGORY_LABELS, SOURCE_TYPE_LABELS, STATUS_LABELS } from "./format";
+
+const HEADERS = [
+  "Date",
+  "Vendor",
+  "Category",
+  "Description",
+  "Amount",
+  "Currency",
+  "Manually Overridden",
+  "Parsed Amount",
+  "Converted Amount",
+  "Converted Currency",
+  "Tax Amount",
+  "Invoice Number",
+  "Card Last 4",
+  "Pickup City",
+  "Dropoff City",
+  "Trip Country",
+  "Status",
+  "Source Type",
+  "Confidence Score",
+  "Email Sender",
+  "Email Subject",
+  "Link to Email",
+  "Gmail Message ID",
+];
+
+function escapeCsv(value: string | number | null | undefined): string {
+  if (value === null || value === undefined) return "";
+  const s = String(value);
+  if (/[",\n]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+export function expensesToCsv(expenses: SerializedExpense[]): string {
+  const rows = expenses.map((e) =>
+    [
+      e.serviceDate ?? e.invoiceDate ?? e.receivedDate,
+      e.vendor,
+      CATEGORY_LABELS[e.category] ?? e.category,
+      e.description ?? "",
+      e.effectiveAmount,
+      e.currency,
+      e.amountManuallyOverridden ? "Yes" : "No",
+      e.parsedAmount,
+      e.convertedAmount ?? "",
+      e.convertedCurrency ?? "",
+      e.taxAmount ?? "",
+      e.invoiceNumber ?? "",
+      e.cardLast4 ?? "",
+      e.pickupCity ?? "",
+      e.dropoffCity ?? "",
+      e.tripCountry ?? "",
+      STATUS_LABELS[e.status] ?? e.status,
+      SOURCE_TYPE_LABELS[e.sourceType] ?? e.sourceType,
+      e.confidenceScore,
+      e.emailSender,
+      e.emailSubject,
+      e.emailLink,
+      e.gmailMessageId,
+    ]
+      .map(escapeCsv)
+      .join(","),
+  );
+
+  return [HEADERS.join(","), ...rows].join("\n");
+}
