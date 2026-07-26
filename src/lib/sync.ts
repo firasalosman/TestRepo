@@ -17,7 +17,7 @@ import { CATEGORY_QUERIES } from "./gmailQueries";
 import { classifyEmail, resolveSourceType } from "./classification";
 import { extractAllFields } from "./fieldExtraction";
 import { attributeExpenseDate, inferHotelServiceDate } from "./dateAttribution";
-import { isOutsideOttawaAndToronto } from "./uberLocation";
+import { extractUberTripLocations, isOutsideOttawaAndToronto } from "./uberLocation";
 import { findDuplicates, findCancellationMatches } from "./dedup";
 import type { DedupCandidate, EmailInput, ExpenseStatus, SourceType } from "./types";
 import { logger } from "./logger";
@@ -99,6 +99,13 @@ async function processMessage(gmail: gmail_v1.Gmail, messageId: string): Promise
   const combinedText = [parsed.subject, parsed.bodyText, ...attachmentTexts].join("\n");
   const fields = extractAllFields(combinedText);
 
+  // Uber pickup/drop-off location is only meaningful (and only extracted)
+  // for Uber trips - running it unconditionally on every email previously
+  // caused hotel invoice addresses (e.g. "Dorval, QC") to be misread as an
+  // Uber pickup city.
+  const uberLocations =
+    classification.category === "GROUND_TRANSPORTATION_UBER" ? extractUberTripLocations(combinedText) : {};
+
   // Hotels fall back check-out -> check-in -> received date (see
   // dateAttribution.ts for the final received-date fallback + review flag).
   const inferredServiceDate =
@@ -133,7 +140,7 @@ async function processMessage(gmail: gmail_v1.Gmail, messageId: string): Promise
   const isUberOffCard =
     classification.category === "GROUND_TRANSPORTATION_UBER" &&
     fields.cardLast4 !== BUSINESS_CARD_LAST_FOUR &&
-    isOutsideOttawaAndToronto({ pickupCity: fields.pickupCity, dropoffCity: fields.dropoffCity }) !== true;
+    isOutsideOttawaAndToronto({ pickupCity: uberLocations.pickupCity, dropoffCity: uberLocations.dropoffCity }) !== true;
 
   if (isUberOffCard) {
     status = "PERSONAL";
@@ -181,11 +188,11 @@ async function processMessage(gmail: gmail_v1.Gmail, messageId: string): Promise
       hotelCheckOut: fields.hotelCheckOut ?? null,
       guestName: fields.guestName ?? null,
       hotelCity: fields.hotelCity ?? null,
-      pickupAddress: fields.pickupAddress ?? null,
-      pickupCity: fields.pickupCity ?? null,
-      dropoffAddress: fields.dropoffAddress ?? null,
-      dropoffCity: fields.dropoffCity ?? null,
-      tripCountry: fields.tripCountry ?? null,
+      pickupAddress: uberLocations.pickupAddress ?? null,
+      pickupCity: uberLocations.pickupCity ?? null,
+      dropoffAddress: uberLocations.dropoffAddress ?? null,
+      dropoffCity: uberLocations.dropoffCity ?? null,
+      tripCountry: uberLocations.tripCountry ?? null,
       sourceType,
       receiptSource: attachmentTexts.length > 0 ? (parsed.bodyText ? "BOTH" : "ATTACHMENT") : parsed.bodyText ? "EMAIL_BODY" : "NONE",
       confidenceScore: classification.confidenceScore,

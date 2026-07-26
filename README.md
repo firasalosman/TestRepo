@@ -297,7 +297,14 @@ See `.env.example` for every configuration variable and what it controls.
 ## Known limitations / roadmap (Phase 4+)
 
 - Sync is triggered manually ("Sync Gmail now") and bounded per call
-  (~40 messages/category); there's no background scheduler yet.
+  (~40 new messages/category); there's no background scheduler yet. Gmail's
+  `messages.list` API always returns results newest-first with no
+  oldest-first option, and each sync click restarts pagination from page 1 -
+  so if a category has a large backlog (e.g. many months of Marriott
+  emails), older messages may take several repeated clicks to reach. Already
+  processed messages don't count against the per-click cap, so each click
+  still makes forward progress; this is just not yet a single "sync
+  everything" operation.
 - Attachment images are not OCR'd — image-only receipts fall back to the
   email body and are flagged for review if no amount can be found.
 - Duplicate reconciliation runs automatically after each sync, but you can
@@ -305,3 +312,11 @@ See `.env.example` for every configuration variable and what it controls.
 - Receipt attachments are not cached to local disk yet, so ZIP export only
   bundles what's locally cached (currently none from a live sync) plus a
   placeholder note; the CSV export and "open in Gmail" link always work.
+- Field extraction (amount/dates/invoice number) is regex-based and tuned
+  against real Marriott/hotel receipt layouts we've seen, including
+  PDF-to-text quirks like reversed value/label ordering and 2-digit years -
+  but it's not exhaustive. If a real document's fields come out wrong,
+  the fix is almost always in `src/lib/fieldExtraction.ts`'s regexes; the
+  fastest way to reproduce is a Vitest test with that document's actual
+  extracted text (see `fieldExtraction.test.ts`'s "real Marriott folio PDF
+  regression" suite for the pattern).

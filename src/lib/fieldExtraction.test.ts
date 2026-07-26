@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractAllFields,
   extractAmount,
   extractGuestName,
   extractHotelCity,
@@ -111,5 +112,81 @@ We look forward to welcoming you.
 
   it("still extracts a real confirmation number adjacent to '#'", () => {
     expect(extractInvoiceNumber("Reservation Confirmation #99622258 for JW Marriott")).toBe("99622258");
+  });
+});
+
+// Regression tests using the exact text layout produced by extracting a
+// real Marriott folio PDF (the reported "amount/dates/month attribution
+// incorrect" bug). This template renders each value immediately BEFORE its
+// column label (reversed from what a normal "label: value" regex expects),
+// uses 2-digit years, and the English column labels are "ARRIVE"/"DEPART"
+// rather than "arrival"/"departure".
+describe("real Marriott folio PDF regression (reversed value/label layout)", () => {
+  const REAL_FOLIO_TEXT = `FACTURE/INVOICE
+AEROPORT DE MONTREAL MARRIOTT
+AEROPORT DE MONTREAL MARRIOTT
+800 PL LEIGH CAPREOL
+DORVAL, QC H4Y0A4
+PH# 514-636-6700
+ 960
+CHAMBRE/ROOM
+CK
+TYPE
+ 11
+RÉCEPTIONNISTE/
+ROOMCLERK
+ALOSMAN/FIRAS/MR
+ NOM/NAME
+319 LINCOLN AVENUE
+OTTAWA ON K1Z6Y4
+ADRESSE/ADDRESS
+ 255.00
+ TARIF/RATE
+04/14/26
+ DÉPART/DEPART
+04/13/26
+ ARRIVÉE/ARRIVE
+10:36
+ HEURE/TIME
+17:05
+ HEURE/TIME
+VSXXXXXXXXXXXX4647
+ PAIMENT/PAYMENT
+ 33072
+ACCT#
+MBV#: 282635734
+04/13 RESTO 1883 960 53.99
+04/13 CHAMBRE 960, 1 255.00
+04/13 TPS.CH. 960, 1 13.20 A
+04/13 TVQ.CH 960, 1 26.33 B
+04/13 HEBERGMT 960, 1 8.93 C
+04/14 CCARD-VS ROOM C/O 357.45
+PAIEMENT/PAYMENT VISA XXXXXXXXXXXX4647
+FRAIS NETS TAXE CREDITS FOLIO
+308.99 48.46 357.45 .00`;
+
+  it("extracts the correct check-in and check-out dates despite the value-before-label layout", () => {
+    const result = extractHotelDates(REAL_FOLIO_TEXT);
+    expect(result.checkIn?.toISOString().slice(0, 10)).toBe("2026-04-13");
+    expect(result.checkOut?.toISOString().slice(0, 10)).toBe("2026-04-14");
+  });
+
+  it("extracts the real total (357.45) with no currency symbol or English label present", () => {
+    expect(extractAmount(REAL_FOLIO_TEXT)).toEqual({ amount: 357.45, currency: "CAD" });
+  });
+
+  it("extracts the MBV# confirmation number rather than the label word itself or a partial number", () => {
+    expect(extractInvoiceNumber(REAL_FOLIO_TEXT)).toBe("282635734");
+  });
+
+  it("extracts the hotel name without swallowing unrelated address text", () => {
+    expect(extractHotelName(REAL_FOLIO_TEXT)).toBe("AEROPORT DE MONTREAL MARRIOTT");
+  });
+
+  it("does not populate any Uber pickup/drop-off fields for a hotel invoice", () => {
+    const fields = extractAllFields(REAL_FOLIO_TEXT);
+    expect(fields).not.toHaveProperty("pickupCity");
+    expect(fields).not.toHaveProperty("dropoffCity");
+    expect(fields).not.toHaveProperty("tripCountry");
   });
 });

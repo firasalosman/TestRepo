@@ -27,6 +27,15 @@ export const CATEGORY_QUERIES: { category: string; query: string }[] = [
     query: `${DATE_RANGE} ${EXCLUDE_SELF} (from:marriott.com OR marriott)`,
   },
   {
+    // res-marriott.com is a DIFFERENT domain than marriott.com (not a
+    // subdomain) - Gmail's from: operator does not reliably match one
+    // against the other, so the reservation-confirmation sender trusted by
+    // classification.ts needs its own dedicated query rather than relying
+    // solely on the bare "marriott" keyword above.
+    category: "HOTEL",
+    query: `${DATE_RANGE} from:res-marriott.com`,
+  },
+  {
     category: "CAR_RENTAL",
     query: `${DATE_RANGE} ${EXCLUDE_SELF} (rental OR "rental agreement" OR receipt OR invoice) (car OR vehicle) (Hertz OR Avis OR Enterprise OR Budget OR "National Car")`,
   },
