@@ -14,8 +14,10 @@ export interface MonthlyTotal {
   allReviewed: boolean;
 }
 
+// A manual amount override always takes priority, even over automatic
+// currency conversion - see src/lib/amountOverride.ts.
 function amountOf(e: TotalableExpense): number {
-  return e.convertedAmount ?? e.amount;
+  return e.effectiveAmount ?? e.convertedAmount ?? e.amount;
 }
 
 export function computeMonthlyTotals(expenses: TotalableExpense[]): MonthlyTotal[] {

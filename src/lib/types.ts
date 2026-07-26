@@ -107,6 +107,7 @@ export interface TotalableExpense {
   status: ExpenseStatus;
   amount: number;
   convertedAmount?: number | null;
+  effectiveAmount?: number | null;
   currency: string;
 }
 

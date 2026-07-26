@@ -9,6 +9,7 @@ interface StructuredEntry {
   previousValues: Record<string, unknown>;
   newValues: Record<string, unknown>;
   reason: string | null;
+  auditSource: string | null;
   performedBy: string;
   isBulk: boolean;
   bulkActionId: string | null;
@@ -80,6 +81,7 @@ export default function AuditHistory({ expenseId }: { expenseId: string }) {
                   <>
                     {formatChange(entry)}
                     {entry.reason && ` — ${entry.reason}`}
+                    {entry.auditSource && ` (${entry.auditSource})`}
                   </>
                 ) : (
                   entry.note

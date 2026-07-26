@@ -7,6 +7,7 @@ import type { ExpenseCategory } from "@/lib/types";
 import { CATEGORY_LABELS, SOURCE_TYPE_LABELS, STATUS_LABELS, formatDate, formatMoney } from "@/lib/format";
 import BulkActionToolbar from "./BulkActionToolbar";
 import AuditHistory from "./AuditHistory";
+import InlineAmountEditor from "./InlineAmountEditor";
 
 const CATEGORIES = Object.keys(CATEGORY_LABELS);
 const STATUSES = Object.keys(STATUS_LABELS);
@@ -60,6 +61,19 @@ export default function ExpenseTable({
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // Rows with a pending (unsaved) inline amount edit - a bulk action must not
+  // be allowed to touch these until the edit resolves (save/cancel), and the
+  // row's own selection checkbox is disabled while it's mid-edit.
+  const [editingAmountIds, setEditingAmountIds] = useState<Set<string>>(new Set());
+
+  function setAmountEditing(id: string, editing: boolean) {
+    setEditingAmountIds((prev) => {
+      const next = new Set(prev);
+      if (editing) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
 
   const currencies = useMemo(
     () => Array.from(new Set(expenses.map((e) => e.currency))).sort(),
@@ -238,6 +252,7 @@ export default function ExpenseTable({
       {selectedExpenses.length > 0 && (
         <BulkActionToolbar
           selectedExpenses={selectedExpenses}
+          blocked={selectedExpenses.some((e) => editingAmountIds.has(e.id))}
           onClear={clearSelection}
           onDone={() => {
             clearSelection();
@@ -274,6 +289,9 @@ export default function ExpenseTable({
               allExpenses={expenses}
               selected={selectedIds.has(e.id)}
               onToggleSelect={() => toggleSelect(e.id)}
+              isEditingAmount={editingAmountIds.has(e.id)}
+              onAmountEditingChange={(editing) => setAmountEditing(e.id, editing)}
+              onAmountSaved={() => router.refresh()}
             />
           ))}
           {filtered.length === 0 && (
@@ -297,6 +315,9 @@ function ExpenseRow({
   allExpenses,
   selected,
   onToggleSelect,
+  isEditingAmount,
+  onAmountEditingChange,
+  onAmountSaved,
 }: {
   expense: SerializedExpense;
   expanded: boolean;
@@ -305,6 +326,9 @@ function ExpenseRow({
   allExpenses: SerializedExpense[];
   selected: boolean;
   onToggleSelect: () => void;
+  isEditingAmount: boolean;
+  onAmountEditingChange: (editing: boolean) => void;
+  onAmountSaved: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState({
@@ -335,15 +359,23 @@ function ExpenseRow({
     <>
       <tr style={{ cursor: "pointer" }} onClick={onToggle}>
         <td onClick={(ev) => ev.stopPropagation()}>
-          <input type="checkbox" checked={selected} onChange={onToggleSelect} />
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            disabled={isEditingAmount}
+            title={isEditingAmount ? "Finish editing the amount before selecting this row." : undefined}
+          />
         </td>
         <td>{formatDate(e.serviceDate ?? e.invoiceDate ?? e.receivedDate)}</td>
         <td>{e.vendor}</td>
         <td>{CATEGORY_LABELS[e.category] ?? e.category}</td>
-        <td>
-          {formatMoney(e.amount, e.currency)}
-          {isReservation && <div className="muted" style={{ fontSize: 11 }}>Estimated — final invoice not found</div>}
-        </td>
+        <InlineAmountEditor
+          expense={e}
+          onSaved={onAmountSaved}
+          onEditingChange={onAmountEditingChange}
+          note={isReservation ? "Estimated — final invoice not found" : undefined}
+        />
         <td>
           <span className="badge" style={{ color: statusColor, background: "transparent", border: `1px solid ${statusColor}` }}>
             {STATUS_LABELS[e.status]}

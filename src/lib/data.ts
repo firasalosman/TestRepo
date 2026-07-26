@@ -6,6 +6,7 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import { computeMonthlyTotals, computeYearlySummary } from "./totals";
 import { buildGmailLink } from "./gmailLink";
+import { effectiveAmountOf } from "./amountOverride";
 import type { ExpenseCategory, ExpenseStatus, ReceiptSource, SourceType, TotalableExpense } from "./types";
 
 export interface SerializedExpense {
@@ -19,11 +20,18 @@ export interface SerializedExpense {
   serviceDate: string | null;
   invoiceDate: string | null;
   receivedDate: string;
-  amount: number;
+  amount: number; // parser/sync-extracted amount - see `parsedAmount` alias below
+  parsedAmount: number; // alias of `amount`, exposed for clarity alongside effectiveAmount
   taxAmount: number | null;
   currency: string;
   convertedAmount: number | null;
   convertedCurrency: string | null;
+  effectiveAmount: number; // authoritative amount for totals/export - manual override if present, else `amount`
+  amountManuallyOverridden: boolean;
+  amountOverrideTimestamp: string | null;
+  amountOverrideSource: string | null;
+  amountOverrideUser: string | null;
+  version: string; // optimistic-concurrency token for the amount-override API (Prisma's updatedAt, ISO string)
   invoiceNumber: string | null;
   cardLast4: string | null;
   tripRoute: string | null;
@@ -78,10 +86,17 @@ export function serializeExpense(e: ExpenseWithRelations): SerializedExpense {
     invoiceDate: e.invoiceDate ? e.invoiceDate.toISOString() : null,
     receivedDate: e.receivedDate.toISOString(),
     amount: e.amount,
+    parsedAmount: e.amount,
     taxAmount: e.taxAmount,
     currency: e.currency,
     convertedAmount: e.convertedAmount,
     convertedCurrency: e.convertedCurrency,
+    effectiveAmount: effectiveAmountOf(e),
+    amountManuallyOverridden: e.amountManuallyOverridden,
+    amountOverrideTimestamp: e.amountOverrideTimestamp ? e.amountOverrideTimestamp.toISOString() : null,
+    amountOverrideSource: e.amountOverrideSource,
+    amountOverrideUser: e.amountOverrideUser,
+    version: e.updatedAt.toISOString(),
     invoiceNumber: e.invoiceNumber,
     cardLast4: e.cardLast4,
     tripRoute: e.tripRoute,
@@ -150,6 +165,7 @@ export function toTotalable(expenses: SerializedExpense[]): TotalableExpense[] {
     status: e.status,
     amount: e.amount,
     convertedAmount: e.convertedAmount,
+    effectiveAmount: e.effectiveAmount,
     currency: e.currency,
   }));
 }

@@ -25,10 +25,14 @@ interface BulkResult {
 
 export default function BulkActionToolbar({
   selectedExpenses,
+  blocked,
   onClear,
   onDone,
 }: {
   selectedExpenses: SerializedExpense[];
+  // True when one or more selected rows have a pending (unsaved) inline
+  // amount edit - bulk actions must not be applied until that edit resolves.
+  blocked?: boolean;
   onClear: () => void;
   onDone: () => void;
 }) {
@@ -40,7 +44,9 @@ export default function BulkActionToolbar({
   const [busy, setBusy] = useState(false);
   const [lastResult, setLastResult] = useState<BulkResult | null>(null);
 
-  const totalsByCurrency = groupTotalsByCurrency(selectedExpenses);
+  const totalsByCurrency = groupTotalsByCurrency(
+    selectedExpenses.map((e) => ({ amount: e.effectiveAmount, currency: e.currency })),
+  );
   const mixedStatuses = hasMixedStatuses(selectedExpenses);
   const anyAlreadyDecided = selectedExpenses.some((e) => ALREADY_DECIDED_STATUSES.includes(e.status));
 
@@ -51,7 +57,7 @@ export default function BulkActionToolbar({
   }
 
   async function applyAction() {
-    if (!confirmingAction || busy) return;
+    if (!confirmingAction || busy || blocked) return;
     setBusy(true);
     try {
       const body: Record<string, unknown> = {
@@ -189,8 +195,14 @@ export default function BulkActionToolbar({
             </p>
           )}
 
+          {blocked && (
+            <p style={{ color: "var(--warn)" }}>
+              One or more selected rows have an unsaved amount edit in progress. Save or cancel it before applying a bulk action.
+            </p>
+          )}
+
           <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={applyAction} disabled={busy}>
+            <button onClick={applyAction} disabled={busy || blocked}>
               {busy ? "Applying..." : "Confirm"}
             </button>
             <button onClick={() => setConfirmingAction(null)} disabled={busy}>

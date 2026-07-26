@@ -37,11 +37,21 @@ model Expense {
   invoiceDate DateTime? // date on the invoice/receipt
   receivedDate DateTime // date the email was received (fallback)
 
-  amount         Float
+  amount         Float // the parser/sync-extracted amount ("parsedAmount") - never written by manual edits
   taxAmount      Float?
   currency       String  @default("USD")
   convertedAmount Float?
   convertedCurrency String?
+
+  // Manual amount override (see src/lib/amountOverride.ts). When
+  // effectiveAmount is null, the authoritative amount is `amount` itself;
+  // when set, it's the user's manual correction and takes priority
+  // everywhere totals/export/bulk-selection read an expense's amount.
+  effectiveAmount          Float?
+  amountManuallyOverridden Boolean   @default(false)
+  amountOverrideTimestamp  DateTime?
+  amountOverrideSource     String? // "INLINE_LIST_EDIT" | "DETAIL_EDIT" | "REVERT"
+  amountOverrideUser       String? // local-user identifier, same convention as AuditLog.performedBy
 
   invoiceNumber String?
   cardLast4     String? // never store more than last 4 digits
@@ -153,10 +163,11 @@ model AuditNote {
 model AuditLog {
   id             String   @id @default(cuid())
   expenseId      String
-  actionType     String // "STATUS_CHANGE" | "CATEGORY_CHANGE" | "MONTH_CHANGE"
+  actionType     String // "STATUS_CHANGE" | "CATEGORY_CHANGE" | "MONTH_CHANGE" | "AMOUNT_OVERRIDE" | "AMOUNT_OVERRIDE_REVERTED"
   previousValues String // JSON-serialized snapshot of only the changed fields
   newValues      String // JSON-serialized snapshot of only the changed fields
   reason         String?
+  source         String? // structured origin, e.g. "INLINE_LIST_EDIT" | "DETAIL_EDIT" | "BULK" | "REVERT" - distinct from the free-text `reason`
   performedBy    String // local-user identifier (this is a single-user personal app)
   isBulk         Boolean  @default(false)
   bulkActionId   String? // groups every row touched by one bulk action together

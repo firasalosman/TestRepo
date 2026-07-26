@@ -77,6 +77,23 @@ describe("computeMonthlyTotals", () => {
     ]);
     expect(totals[4].confirmedTotal).toBeCloseTo(82.1, 2);
   });
+
+  it("uses effectiveAmount (manual override) over convertedAmount and amount", () => {
+    const totals = computeMonthlyTotals([
+      {
+        id: "y",
+        month: 6,
+        category: "OTHER_POTENTIAL",
+        vendor: "Adobe",
+        status: "CONFIRMED",
+        amount: 59.99,
+        convertedAmount: 82.1,
+        effectiveAmount: 50,
+        currency: "USD",
+      },
+    ]);
+    expect(totals[5].confirmedTotal).toBe(50);
+  });
 });
 
 describe("computeYearlySummary", () => {

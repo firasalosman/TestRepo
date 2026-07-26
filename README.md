@@ -184,6 +184,32 @@ and whether it was part of a bulk action) alongside the existing free-text
 `AuditNote` system notes; expand a row to see the merged "Audit history"
 timeline for that expense.
 
+### Inline amount correction
+
+Click the amount in any row of the monthly table to correct it directly,
+without expanding the row. The cell switches to an editable field showing
+the currency; type a new value and press **Enter** (or click **Save**) to
+save, **Escape** (or **Cancel**) to back out, or **Tab** to save and move on.
+Accepts plain decimals or currency-prefixed input like `CAD 1,234.56`;
+rejects invalid text, more than 2 decimal places, and negative amounts
+(unless the expense type explicitly supports credits/refunds); a $0.00
+amount requires an explicit confirmation click before it saves.
+
+A manual correction is stored as an **effective amount** that takes priority
+over the parser's original amount everywhere totals are computed - monthly
+tiles, the yearly summary, bulk-selection totals, and CSV export. The
+originally parsed amount is preserved separately (`parsedAmount`) for
+audit/debugging, and a later Gmail re-sync can never silently overwrite a
+manual override. A corrected amount shows a small "edited" tag next to it
+(not just a color change) with an accessible/hover label giving the original
+parsed amount and correction date; a **Revert to parsed amount** action
+(with a confirmation, since it changes the total) is available while editing.
+Saves use optimistic concurrency - if the expense changed elsewhere since you
+loaded it, the save is rejected with a prompt to reload the latest value
+instead of silently overwriting it. Every override or revert is recorded in
+the same `AuditLog` timeline described above (`AMOUNT_OVERRIDE` /
+`AMOUNT_OVERRIDE_REVERTED`).
+
 ## Export
 
 - Month CSV: `2026-03-business-expenses.csv`

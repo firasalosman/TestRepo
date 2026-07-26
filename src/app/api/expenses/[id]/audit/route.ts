@@ -19,6 +19,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       previousValues: JSON.parse(l.previousValues),
       newValues: JSON.parse(l.newValues),
       reason: l.reason,
+      auditSource: l.source,
       performedBy: l.performedBy,
       isBulk: l.isBulk,
       bulkActionId: l.bulkActionId,
