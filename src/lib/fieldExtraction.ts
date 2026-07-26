@@ -5,6 +5,7 @@
 // expense for review rather than guessing.
 
 import { extractCardLast4 } from "./classification";
+import { extractUberTripLocations } from "./uberLocation";
 
 export interface ExtractedFields {
   amount?: number;
@@ -18,6 +19,11 @@ export interface ExtractedFields {
   hotelName?: string;
   hotelCity?: string;
   guestName?: string;
+  pickupAddress?: string;
+  pickupCity?: string;
+  dropoffAddress?: string;
+  dropoffCity?: string;
+  tripCountry?: string;
   serviceDate?: Date;
 }
 
@@ -170,6 +176,7 @@ export function extractGuestName(text: string): string | undefined {
 export function extractAllFields(text: string): ExtractedFields {
   const amount = extractAmount(text);
   const hotelDates = extractHotelDates(text);
+  const uberLocations = extractUberTripLocations(text);
   return {
     amount: amount?.amount,
     currency: amount?.currency,
@@ -182,6 +189,11 @@ export function extractAllFields(text: string): ExtractedFields {
     hotelName: extractHotelName(text),
     hotelCity: extractHotelCity(text),
     guestName: extractGuestName(text),
+    pickupAddress: uberLocations.pickupAddress,
+    pickupCity: uberLocations.pickupCity,
+    dropoffAddress: uberLocations.dropoffAddress,
+    dropoffCity: uberLocations.dropoffCity,
+    tripCountry: uberLocations.tripCountry,
     serviceDate: extractServiceDate(text),
   };
 }

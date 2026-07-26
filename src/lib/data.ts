@@ -31,6 +31,11 @@ export interface SerializedExpense {
   hotelCheckOut: string | null;
   guestName: string | null;
   hotelCity: string | null;
+  pickupAddress: string | null;
+  pickupCity: string | null;
+  dropoffAddress: string | null;
+  dropoffCity: string | null;
+  tripCountry: string | null;
   sourceType: SourceType;
   possibleCancellation: boolean;
   receiptSource: ReceiptSource;
@@ -84,6 +89,11 @@ export function serializeExpense(e: ExpenseWithRelations): SerializedExpense {
     hotelCheckOut: e.hotelCheckOut ? e.hotelCheckOut.toISOString() : null,
     guestName: e.guestName,
     hotelCity: e.hotelCity,
+    pickupAddress: e.pickupAddress,
+    pickupCity: e.pickupCity,
+    dropoffAddress: e.dropoffAddress,
+    dropoffCity: e.dropoffCity,
+    tripCountry: e.tripCountry,
     sourceType: e.sourceType as SourceType,
     possibleCancellation: e.possibleCancellation,
     receiptSource: e.receiptSource as ReceiptSource,

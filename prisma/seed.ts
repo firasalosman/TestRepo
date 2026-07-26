@@ -30,6 +30,11 @@ type SeedExpense = {
   hotelCheckOut?: string;
   guestName?: string;
   hotelCity?: string;
+  pickupAddress?: string;
+  pickupCity?: string;
+  dropoffAddress?: string;
+  dropoffCity?: string;
+  tripCountry?: string;
   sourceType?: SourceType;
   possibleCancellation?: boolean;
   receiptSource: ReceiptSource;
@@ -393,6 +398,34 @@ const other: SeedExpense[] = [
     emailSender: "receipts@uber.com",
     emailSubject: "Your Monday trip with Uber",
   },
+  // Trip outside Ottawa/Toronto on a non-business card - qualifies as a
+  // potential business expense under the location rule even though the
+  // card doesn't match 4647 (captured as Needs Review, not Personal).
+  {
+    month: 7,
+    category: "GROUND_TRANSPORTATION_UBER",
+    status: "NEEDS_REVIEW",
+    vendor: "Uber",
+    description: "Client site visit - Vancouver conference",
+    serviceDate: d(7, 14),
+    receivedDate: d(7, 14),
+    amount: 27.85,
+    currency: "CAD",
+    cardLast4: "1190",
+    pickupAddress: "789 Robson St, Vancouver, BC",
+    pickupCity: "Vancouver",
+    dropoffAddress: "200 Burrard St, Vancouver, BC",
+    dropoffCity: "Vancouver",
+    tripCountry: "Canada",
+    sourceType: "UNKNOWN",
+    receiptSource: "EMAIL_BODY",
+    confidenceScore: 0.6,
+    classificationReason:
+      "Trip occurred outside Ottawa and Toronto (pickup: Vancouver, drop-off: Vancouver); captured as a potential business expense even though the card could not be confirmed as 4647.",
+    gmailMessageId: "mock-uber-jul-outside-city",
+    emailSender: "receipts@uber.com",
+    emailSubject: "Your Tuesday trip with Uber",
+  },
 
   // --- VIA Rail ---
   {
@@ -553,6 +586,11 @@ async function main() {
         hotelCheckOut: e.hotelCheckOut ? new Date(e.hotelCheckOut) : undefined,
         guestName: e.guestName,
         hotelCity: e.hotelCity,
+        pickupAddress: e.pickupAddress,
+        pickupCity: e.pickupCity,
+        dropoffAddress: e.dropoffAddress,
+        dropoffCity: e.dropoffCity,
+        tripCountry: e.tripCountry,
         sourceType: e.sourceType ?? "UNKNOWN",
         possibleCancellation: e.possibleCancellation ?? false,
         receiptSource: e.receiptSource,

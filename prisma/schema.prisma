@@ -50,6 +50,15 @@ model Expense {
   hotelCheckIn    DateTime?
   hotelCheckOut   DateTime?
 
+  // Uber pickup/drop-off location (see src/lib/uberLocation.ts) - used to
+  // qualify a trip as a business expense when it occurred outside both
+  // Ottawa and Toronto, even without the business card.
+  pickupAddress  String?
+  pickupCity     String?
+  dropoffAddress String?
+  dropoffCity    String?
+  tripCountry    String?
+
   receiptSource      String @default("NONE")
   confidenceScore    Float  @default(0) // 0..1
   classificationReason String?

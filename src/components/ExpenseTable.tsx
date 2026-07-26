@@ -377,6 +377,13 @@ function ExpenseRow({
                 />
                 <Detail label="Card last 4" value={e.cardLast4 ?? "-"} />
                 <Detail label="Trip route" value={e.tripRoute ?? "-"} />
+                {e.category === "GROUND_TRANSPORTATION_UBER" && (
+                  <>
+                    <Detail label="Pickup" value={e.pickupCity ?? e.pickupAddress ?? "-"} />
+                    <Detail label="Drop-off" value={e.dropoffCity ?? e.dropoffAddress ?? "-"} />
+                    <Detail label="Trip country" value={e.tripCountry ?? "-"} />
+                  </>
+                )}
                 <Detail
                   label="Check-in / Check-out"
                   value={e.hotelCheckIn ? `${formatDate(e.hotelCheckIn)} → ${formatDate(e.hotelCheckOut)}` : "-"}

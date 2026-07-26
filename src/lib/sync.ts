@@ -17,6 +17,7 @@ import { CATEGORY_QUERIES } from "./gmailQueries";
 import { classifyEmail, resolveSourceType } from "./classification";
 import { extractAllFields } from "./fieldExtraction";
 import { attributeExpenseDate, inferHotelServiceDate } from "./dateAttribution";
+import { isOutsideOttawaAndToronto } from "./uberLocation";
 import { findDuplicates, findCancellationMatches } from "./dedup";
 import type { DedupCandidate, EmailInput, ExpenseStatus, SourceType } from "./types";
 import { logger } from "./logger";
@@ -124,8 +125,15 @@ async function processMessage(gmail: gmail_v1.Gmail, messageId: string): Promise
     sourceType === "POSSIBLE_CANCELLATION";
 
   let status: ExpenseStatus = "NEEDS_REVIEW";
+  // A trip only becomes Personal when NEITHER qualifying condition is met:
+  // not the business card, AND not confirmed outside Ottawa/Toronto. An
+  // unknown location (couldn't extract pickup/drop-off) does not count as
+  // "outside" - that would be guessing - so it falls back to the original
+  // card-only behavior.
   const isUberOffCard =
-    classification.category === "GROUND_TRANSPORTATION_UBER" && fields.cardLast4 && fields.cardLast4 !== BUSINESS_CARD_LAST_FOUR;
+    classification.category === "GROUND_TRANSPORTATION_UBER" &&
+    fields.cardLast4 !== BUSINESS_CARD_LAST_FOUR &&
+    isOutsideOttawaAndToronto({ pickupCity: fields.pickupCity, dropoffCity: fields.dropoffCity }) !== true;
 
   if (isUberOffCard) {
     status = "PERSONAL";
@@ -173,6 +181,11 @@ async function processMessage(gmail: gmail_v1.Gmail, messageId: string): Promise
       hotelCheckOut: fields.hotelCheckOut ?? null,
       guestName: fields.guestName ?? null,
       hotelCity: fields.hotelCity ?? null,
+      pickupAddress: fields.pickupAddress ?? null,
+      pickupCity: fields.pickupCity ?? null,
+      dropoffAddress: fields.dropoffAddress ?? null,
+      dropoffCity: fields.dropoffCity ?? null,
+      tripCountry: fields.tripCountry ?? null,
       sourceType,
       receiptSource: attachmentTexts.length > 0 ? (parsed.bodyText ? "BOTH" : "ATTACHMENT") : parsed.bodyText ? "EMAIL_BODY" : "NONE",
       confidenceScore: classification.confidenceScore,

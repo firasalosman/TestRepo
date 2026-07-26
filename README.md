@@ -82,10 +82,15 @@ src/app/api/                 Expenses CRUD, review actions, CSV/ZIP export, dele
   holds are flagged `NEEDS_REVIEW`, not counted as final expenses.
 - **Toronto condo rental** — sender/content matching for Menkes and
   "771 Yonge Street, Toronto"; category `Toronto Condo Rental`.
-- **Uber** — only trips charged to the business card ending **4647** are
-  eligible for `CONFIRMED`; any other card is detected from the email
-  body/attachment text and automatically marked `PERSONAL` instead. Only the
-  last 4 digits of any card are ever stored — never the full number.
+- **Uber** — qualifies as a potential business expense when **either**:
+  the trip was charged to the business card ending **4647**, **or** the
+  trip occurred **outside both Ottawa and Toronto** (detected from
+  pickup/drop-off city in the receipt, `src/lib/uberLocation.ts`) — a trip
+  is only auto-marked `PERSONAL` when neither condition holds (unknown
+  location is never assumed to be "outside"; it falls back to the
+  card-only rule). Pickup/drop-off address, city, and trip country are
+  extracted where present. Only the last 4 digits of any card are ever
+  stored — never the full number.
 - **VIA Rail** — final e-ticket/receipt preferred over itinerary/booking
   updates for the same trip.
 - **Other Potential Business Expense** — catch-all for anything that looks

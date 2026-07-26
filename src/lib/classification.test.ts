@@ -263,3 +263,65 @@ describe("Marriott reservation confirmations (reservations@res-marriott.com)", (
     expect(resolveSourceType(result, true)).not.toBe("FINAL_INVOICE");
   });
 });
+
+describe("Uber: business card OR trip outside Ottawa/Toronto", () => {
+  it("qualifies a trip outside Ottawa/Toronto even when the card does not match 4647", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "receipts@uber.com",
+        subject: "Your Tuesday trip with Uber",
+        bodyText: `
+Total charged to Visa card ending 1190: $32.10
+8:03 AM | 789 Robson St, Vancouver, BC
+8:22 AM | 200 Burrard St, Vancouver, BC
+`,
+      }),
+    );
+    expect(result.category).toBe("GROUND_TRANSPORTATION_UBER");
+    expect(result.confidenceScore).toBeGreaterThanOrEqual(0.6);
+    expect(result.reason).toContain("outside Ottawa and Toronto");
+  });
+
+  it("does not qualify a non-business-card trip that stayed within Toronto", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "receipts@uber.com",
+        subject: "Your Tuesday trip with Uber",
+        bodyText: `
+Total charged to Visa card ending 1190: $15.60
+8:03 AM | 123 King St W, Toronto, ON
+8:22 AM | 456 Queen St, Toronto, ON
+`,
+      }),
+    );
+    expect(result.category).toBe("GROUND_TRANSPORTATION_UBER");
+    expect(result.confidenceScore).toBeLessThan(0.5);
+    expect(result.reason).toContain("does not match business card");
+  });
+
+  it("does not qualify a non-business-card trip with no detectable location (unknown, not assumed outside)", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "receipts@uber.com",
+        subject: "Your Tuesday trip with Uber",
+        bodyText: "Total charged to Visa card ending 1190: $15.60",
+      }),
+    );
+    expect(result.confidenceScore).toBeLessThan(0.5);
+  });
+
+  it("still qualifies via the business card even when the trip is within Ottawa/Toronto", () => {
+    const result = classifyEmail(
+      baseEmail({
+        sender: "receipts@uber.com",
+        subject: "Your Tuesday trip with Uber",
+        bodyText: `
+Total charged to Visa card ending 4647: $12.00
+8:03 AM | 1 Elgin St, Ottawa, ON
+`,
+      }),
+    );
+    expect(result.confidenceScore).toBeGreaterThan(0.8);
+    expect(result.reason).toContain("business card");
+  });
+});

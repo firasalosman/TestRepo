@@ -7,6 +7,7 @@
 // must be manually reviewed before it counts toward confirmed totals.
 
 import type { ClassificationResult, EmailInput, SourceType } from "./types";
+import { extractUberTripLocations, isOutsideOttawaAndToronto } from "./uberLocation";
 
 const BUSINESS_CARD_LAST_FOUR = "4647";
 
@@ -29,6 +30,12 @@ function text(input: EmailInput): string {
   return [input.subject, input.bodyText, ...(input.attachmentTexts ?? [])]
     .join("\n")
     .toLowerCase();
+}
+
+// Original-case text, needed for location extraction (city names rely on
+// capitalization) - see uberLocation.ts.
+function rawText(input: EmailInput): string {
+  return [input.subject, input.bodyText, ...(input.attachmentTexts ?? [])].join("\n");
 }
 
 function senderDomain(sender: string): string {
@@ -126,24 +133,34 @@ export function classifyEmail(input: EmailInput): ClassificationResult {
     };
   }
 
-  // --- Uber (business card only) ---
+  // --- Uber (business card ending 4647, OR trip outside Ottawa/Toronto) ---
   if (domain.includes("uber.com") || t.includes("your trip with uber")) {
     const cardLast4 = extractCardLast4(t);
-    if (cardLast4 && cardLast4 !== BUSINESS_CARD_LAST_FOUR) {
+    const onBusinessCard = cardLast4 === BUSINESS_CARD_LAST_FOUR;
+
+    const locations = extractUberTripLocations(rawText(input));
+    const outsideOttawaToronto = isOutsideOttawaAndToronto(locations);
+    const qualifiesByLocation = outsideOttawaToronto === true;
+
+    if (!onBusinessCard && !qualifiesByLocation) {
+      // Neither qualifying condition is met: wrong/unknown card, and the
+      // trip wasn't confirmed to be outside Ottawa/Toronto.
       return {
         category: "GROUND_TRANSPORTATION_UBER",
-        confidenceScore: 0.2,
-        reason: `Card ending ${cardLast4} does not match business card ${BUSINESS_CARD_LAST_FOUR}; excluded from business totals.`,
+        confidenceScore: cardLast4 ? 0.2 : 0.3,
+        reason: cardLast4
+          ? `Card ending ${cardLast4} does not match business card ${BUSINESS_CARD_LAST_FOUR}, and the trip was not outside Ottawa/Toronto; excluded from business totals.`
+          : "Uber receipt found but card last-4 could not be confirmed, and the trip was not outside Ottawa/Toronto; excluded from business totals.",
         isFinalDocument: true,
       };
     }
+
     return {
       category: "GROUND_TRANSPORTATION_UBER",
-      confidenceScore: cardLast4 === BUSINESS_CARD_LAST_FOUR ? 0.88 : 0.5,
-      reason:
-        cardLast4 === BUSINESS_CARD_LAST_FOUR
-          ? `Charged to business card ending ${BUSINESS_CARD_LAST_FOUR}.`
-          : "Uber receipt found but card last-4 could not be confirmed; needs review.",
+      confidenceScore: onBusinessCard ? 0.88 : 0.6,
+      reason: onBusinessCard
+        ? `Charged to business card ending ${BUSINESS_CARD_LAST_FOUR}.`
+        : `Trip occurred outside Ottawa and Toronto (pickup: ${locations.pickupCity ?? "unknown"}, drop-off: ${locations.dropoffCity ?? "unknown"}); captured as a potential business expense even though the card could not be confirmed as ${BUSINESS_CARD_LAST_FOUR}.`,
       isFinalDocument: true,
     };
   }
